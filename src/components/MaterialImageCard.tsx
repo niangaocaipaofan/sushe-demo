@@ -1,0 +1,54 @@
+import type { GenerationTask } from "../types/material-generation";
+
+const statusLabel: Record<GenerationTask["status"], string> = {
+  planned: "等待生成",
+  generating: "生成中...",
+  reviewing: "质检中...",
+  retrying: "重新生成中...",
+  completed: "已完成",
+  failed: "生成失败",
+};
+
+export function MaterialImageCard({
+  task,
+  onPreview,
+}: {
+  task: GenerationTask;
+  onPreview?: (imageUrl: string, imageLabel: string) => void;
+}) {
+  const showImage = Boolean(task.imageUrl) && !["planned", "generating"].includes(task.status);
+  const statusDetail = task.status === "failed"
+    ? task.errorMessage || task.reviewFeedback || "生成失败，未返回具体原因"
+    : task.attempt > 0 ? `${task.attempt} 次生成` : "等待生成";
+
+  return (
+    <article className={`material-image-card is-${task.status}`}>
+      <div className="material-image-card-heading">
+        <strong title={task.imageLabel}>{task.imageLabel}</strong>
+        <span className="material-image-card-meta">
+          <em>{statusLabel[task.status]}</em>
+        </span>
+      </div>
+      <div className="material-image-card-status">
+        <span title={statusDetail}>{statusDetail}</span>
+        {task.status === "reviewing" && <i>AI</i>}
+      </div>
+      <div className="material-image-card-preview">
+        {showImage ? (
+          <button
+            className="material-generated-image-trigger"
+            type="button"
+            aria-label={`放大查看 ${task.imageLabel}`}
+            onClick={() => task.imageUrl && onPreview?.(task.imageUrl, task.imageLabel)}
+          >
+            <img src={task.imageUrl} alt={`${task.imageLabel} 生成结果`} />
+          </button>
+        ) : task.status === "failed" ? (
+          <div className="material-image-failed-mark">!</div>
+        ) : (
+          <div className="material-image-skeleton" aria-label={`${task.imageLabel} 图片加载中`} />
+        )}
+      </div>
+    </article>
+  );
+}
