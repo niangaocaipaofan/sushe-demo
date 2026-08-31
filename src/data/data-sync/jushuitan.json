@@ -1,0 +1,15 @@
+{
+  "id": "jushuitan",
+  "label": "聚水潭",
+  "mode": "local-mock",
+  "recordCount": 15678,
+  "updatedAt": "2026-08-31T10:18:00+08:00",
+  "scopes": {
+    "product": 11692,
+    "sku": 20000,
+    "price": 9842,
+    "content": 44246,
+    "media": 126080,
+    "attributes": 50272
+  }
+}

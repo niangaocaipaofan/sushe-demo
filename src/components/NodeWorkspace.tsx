@@ -19,6 +19,7 @@ import type { WorkflowNode } from "../data/workflows";
 import { useMaterialGeneration } from "../hooks/useMaterialGeneration";
 import type { ImageGenerationModel } from "../types/material-generation";
 import { AgentTabIcon } from "./AgentTabIcon";
+import { DataSyncWorkspace } from "./DataSyncWorkspace";
 import { MaterialCategorySection } from "./MaterialCategorySection";
 import { MaterialGenerationStatus } from "./MaterialGenerationStatus";
 
@@ -817,7 +818,7 @@ export function NodeWorkspace({
   }
 
   const activeTab = tabs ? activeTabs[node.id] ?? tabs[0].id : null;
-  const placeholder = activeTab
+  const placeholder = activeTab && !(activeTab === "data-sync" && node.templateId === "complete-link")
     ? tabPlaceholders[activeTab as NodeTabId]
     : undefined;
 
@@ -877,6 +878,7 @@ export function NodeWorkspace({
           <iframe className="node-embed-frame" src="https://cms.ecpro.com/login" title="ECPro 登录页" loading="lazy" />
         </div>
         {activeTab === "ai-materials" && <MaterialGenerationWorkspace />}
+        {activeTab === "data-sync" && node.templateId === "complete-link" && <DataSyncWorkspace />}
         {placeholder && <div className="empty-workspace">{placeholder}</div>}
       </div>
 
