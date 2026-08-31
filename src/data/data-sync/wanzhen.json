@@ -1,0 +1,15 @@
+{
+  "id": "wanzhen",
+  "label": "万阵",
+  "mode": "local-mock",
+  "recordCount": 12845,
+  "updatedAt": "2026-08-31T10:30:00+08:00",
+  "scopes": {
+    "product": 12450,
+    "sku": 18765,
+    "price": 8242,
+    "content": 48920,
+    "media": 98240,
+    "attributes": 42120
+  }
+}
