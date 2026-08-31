@@ -18,7 +18,7 @@ export function useDataSyncWorkflow() {
   const [isCreating, setIsCreating] = useState(false);
   const [createdTask, setCreatedTask] = useState<LocalSyncTask | null>(null);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
-  const [conflictResolutions, setConflictResolutions] = useState<Record<string, DifferenceResolution>>({});
+  const [differenceResolutions, setDifferenceResolutions] = useState<Record<string, DifferenceResolution>>({});
 
   useEffect(() => {
     void localDataSyncAdapter.getPlatforms().then(setPlatforms);
@@ -32,13 +32,13 @@ export function useDataSyncWorkflow() {
     () => localDataSyncAdapter.preview(sourceList, targetList, scopeList),
     [scopeList, sourceList, targetList],
   );
-  const unresolvedConflictCount = differences.filter(
-    (difference) => difference.result === "conflict" && !conflictResolutions[difference.id],
+  const unresolvedDecisionCount = differences.filter(
+    (difference) => difference.result !== "skipped" && !differenceResolutions[difference.id],
   ).length;
 
   const resolveDifference = (id: string, resolution: DifferenceResolution) => {
     setCreatedTask(null);
-    setConflictResolutions((current) => ({ ...current, [id]: resolution }));
+    setDifferenceResolutions((current) => ({ ...current, [id]: resolution }));
   };
   const toggleSource = (id: PlatformId) => {
     setCreatedTask(null);
@@ -72,12 +72,10 @@ export function useDataSyncWorkflow() {
   };
 
   const createTask = async () => {
-    if (!sourceIds.size || !targetIds.size || !scopeIds.size || unresolvedConflictCount) return;
+    if (!sourceIds.size || !targetIds.size || !scopeIds.size || unresolvedDecisionCount) return;
     const resolutions = Object.fromEntries(differences.map((difference) => [
       difference.id,
-      difference.result === "conflict"
-        ? conflictResolutions[difference.id]
-        : difference.result === "skipped" ? "skip" : "overwrite",
+      difference.result === "skipped" ? "skip" : differenceResolutions[difference.id],
     ])) as Record<string, DifferenceResolution>;
     setIsCreating(true);
     try {
@@ -94,12 +92,12 @@ export function useDataSyncWorkflow() {
     scopes,
     scopeIds,
     differences,
-    conflictResolutions,
-    unresolvedConflictCount,
+    differenceResolutions,
+    unresolvedDecisionCount,
     isCreating,
     createdTask,
     selectionNotice,
-    canCreate: sourceIds.size > 0 && targetIds.size > 0 && scopeIds.size > 0 && unresolvedConflictCount === 0,
+    canCreate: sourceIds.size > 0 && targetIds.size > 0 && scopeIds.size > 0 && unresolvedDecisionCount === 0,
     toggleSource,
     toggleTarget,
     toggleScope,

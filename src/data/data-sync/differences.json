@@ -7,7 +7,7 @@
     "targetPlatform": "ecpro",
     "sourceValue": "1",
     "targetValue": "9",
-    "result": "conflict"
+    "result": "pending"
   },
   {
     "id": "diff-product-title",
@@ -17,7 +17,7 @@
     "targetPlatform": "ecpro",
     "sourceValue": "奶白针织衫 2026 秋季款",
     "targetValue": "奶白针织上衣",
-    "result": "updated"
+    "result": "pending"
   },
   {
     "id": "diff-sku-m",
@@ -37,7 +37,7 @@
     "targetPlatform": "ecpro",
     "sourceValue": "¥799.00",
     "targetValue": "¥789.00",
-    "result": "conflict"
+    "result": "pending"
   },
   {
     "id": "diff-main-image",
@@ -57,6 +57,6 @@
     "targetPlatform": "ecpro",
     "sourceValue": "128",
     "targetValue": "96",
-    "result": "updated"
+    "result": "pending"
   }
 ]

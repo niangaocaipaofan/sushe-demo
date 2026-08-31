@@ -2,7 +2,7 @@ export type PlatformId = "wanzhen" | "ecpro" | "jushuitan" | "local";
 
 export type DataScopeId = "product" | "sku" | "price" | "content" | "media" | "attributes";
 
-export type DifferenceResult = "added" | "updated" | "conflict" | "skipped";
+export type DifferenceResult = "added" | "pending" | "skipped";
 
 export type DifferenceResolution = "overwrite" | "skip";
 

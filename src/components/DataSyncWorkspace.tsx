@@ -21,16 +21,16 @@ export function DataSyncWorkspace() {
       <DifferenceTable
         differences={workflow.differences}
         platforms={workflow.platforms}
-        resolutions={workflow.conflictResolutions}
+        resolutions={workflow.differenceResolutions}
         onResolve={workflow.resolveDifference}
       />
 
       {workflow.selectionNotice && <div className="sync-selection-notice" role="status">{workflow.selectionNotice}</div>}
-      {workflow.createdTask && <div className="sync-task-created" role="status">同步任务已创建：{workflow.createdTask.id}（覆盖/新增 {workflow.createdTask.overwriteCount} 条，跳过 {workflow.createdTask.skippedCount} 条）</div>}
+      {workflow.createdTask && <div className="sync-task-created" role="status">同步任务已创建：{workflow.createdTask.id}（写入 {workflow.createdTask.overwriteCount} 条，保留/跳过 {workflow.createdTask.skippedCount} 条）</div>}
 
       <div className="sync-workspace-actions">
         <button className="sync-primary-action" type="button" disabled={!workflow.canCreate || workflow.isCreating} onClick={() => void workflow.createTask()}>
-          {workflow.isCreating ? "正在创建..." : workflow.unresolvedConflictCount ? `请处理 ${workflow.unresolvedConflictCount} 个冲突` : "创建同步任务"}
+          {workflow.isCreating ? "正在创建..." : workflow.unresolvedDecisionCount ? `请处理 ${workflow.unresolvedDecisionCount} 条差异` : "创建同步任务"}
         </button>
       </div>
     </section>
