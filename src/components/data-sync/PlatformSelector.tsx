@@ -20,7 +20,7 @@ export function PlatformSelector({ label, platforms, selectedIds, onToggle }: Pl
             <label className={`sync-platform-option${selectedIds.has(platform.id) ? " is-selected" : ""}`} key={platform.id}>
               <input type="checkbox" checked={selectedIds.has(platform.id)} onChange={() => onToggle(platform.id)} />
               {platform.id === "local" ? <FolderOpen aria-hidden="true" size={17} /> : <Database aria-hidden="true" size={17} weight="fill" />}
-              <span className="sync-platform-copy"><strong>{platform.label}</strong><small>{platform.id === "local" ? "本机数据" : "本地模拟"}</small></span>
+              <span className="sync-platform-copy"><strong>{platform.label}</strong><small>{platform.id === "local" ? "本机数据" : "本地数据"}</small></span>
               <span className="sync-platform-meta"><b>{numberFormatter.format(platform.recordCount)}</b><small>条数据</small></span>
             </label>
         ))}

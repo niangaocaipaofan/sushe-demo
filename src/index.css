@@ -193,13 +193,6 @@
   .empty-workspace { min-height: 320px; display: grid; place-items: center; color: #888; font-size: 10px; background-image: radial-gradient(#e2e2e2 0.7px, transparent 0.7px); background-size: 16px 16px; }
 
   .data-sync-workspace { min-height: 410px; display: flex; flex-direction: column; background: #fff; color: #424242; }
-  .sync-route-summary { min-height: 44px; padding: 5px 18px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--console-border); background: #fcfdfc; }
-  .sync-route-summary > strong { flex: none; margin-right: 4px; color: #373737; font-size: 12px; }
-  .sync-route-summary > svg { flex: none; color: #24a976; }
-  .sync-route-summary-group { min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; }
-  .sync-route-summary-group span, .sync-route-payload { padding: 5px 9px; overflow: hidden; border: 1px solid #a9dec9; border-radius: 4px; color: #34715a; background: #f5fbf8; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-  .sync-route-summary-group em { color: #999; font-size: 10px; font-style: normal; }
-  .sync-route-payload { flex: none; border-color: #d8d8d8; color: #666; background: #fff; }
   .sync-route-canvas { padding: 6px 18px; display: grid; grid-template-columns: minmax(220px, 27%) 42px minmax(300px, 38%) 42px minmax(220px, 27%); align-items: stretch; }
   .sync-route-panel { height: 190px; min-width: 0; padding: 7px 10px; overflow: auto; border: 1px solid #dedede; border-radius: 5px; background: #fff; }
   .sync-route-panel-title { min-height: 24px; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; border-bottom: 1px solid #e7e7e7; }
@@ -232,14 +225,19 @@
   .sync-difference-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 9px; }
   .sync-difference-table th { position: sticky; top: 0; height: 25px; padding: 0 10px; color: #555; background: #f7f7f7; font-weight: 600; text-align: left; }
   .sync-difference-table td { height: 25px; padding: 0 10px; overflow: hidden; border-top: 1px solid #ececec; color: #5f5f5f; text-overflow: ellipsis; white-space: nowrap; }
-  .sync-difference-table th:nth-child(1) { width: 22%; }
-  .sync-difference-table th:nth-child(2), .sync-difference-table th:nth-child(3) { width: 10%; }
-  .sync-difference-table th:nth-child(4), .sync-difference-table th:nth-child(5) { width: 23%; }
+  .sync-difference-table th:nth-child(1) { width: 17%; }
+  .sync-difference-table th:nth-child(2), .sync-difference-table th:nth-child(3) { width: 8%; }
+  .sync-difference-table th:nth-child(4), .sync-difference-table th:nth-child(5) { width: 17%; }
   .sync-difference-table th:nth-child(6) { width: 8%; }
+  .sync-difference-table th:nth-child(7) { width: 25%; }
   .sync-result { font-weight: 600; }
   .sync-result.is-added, .sync-result.is-updated { color: #159664; }
   .sync-result.is-conflict { color: #d77819; }
   .sync-result.is-skipped { color: #929292; }
+  .sync-resolution-options { display: flex; align-items: center; gap: 4px; }
+  .sync-resolution-options button { min-height: 20px; padding: 0 7px; border: 1px solid #d7d7d7; border-radius: 3px; color: #666; background: #fff; font-size: 8px; cursor: pointer; }
+  .sync-resolution-options button:hover, .sync-resolution-options button.is-selected { border-color: #45b98b; color: #14835a; background: #f0faf6; }
+  .sync-resolution-auto { color: #747474; font-size: 8px; }
   .sync-difference-empty { height: 58px !important; color: #999 !important; text-align: center; }
   .sync-task-created { margin: 0 18px 10px; padding: 8px 10px; border: 1px solid #b8e1d0; border-radius: 4px; color: #277258; background: #f3faf7; font-size: 10px; }
   .sync-selection-notice { margin: 0 18px 8px; padding: 6px 10px; border: 1px solid #cfe6dc; border-radius: 4px; color: #277258; background: #f7fbf9; font-size: 10px; }
@@ -253,11 +251,9 @@
     .sync-route-canvas { grid-template-columns: 1fr 34px 1.25fr; row-gap: 12px; }
     .sync-route-canvas > :nth-child(4) { display: none; }
     .sync-route-canvas > :nth-child(5) { grid-column: 1 / -1; }
-    .sync-route-summary { overflow-x: auto; }
   }
 
   @media (max-width: 720px) {
-    .sync-route-summary { align-items: flex-start; flex-wrap: wrap; }
     .sync-route-canvas { display: flex; flex-direction: column; gap: 8px; }
     .sync-route-direction { min-height: 28px; transform: rotate(90deg); }
     .sync-difference-table { min-width: 760px; }

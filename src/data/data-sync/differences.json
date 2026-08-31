@@ -1,5 +1,15 @@
 [
   {
+    "id": "diff-stock-conflict",
+    "scopeId": "sku",
+    "dataItem": "库存：KNIT-001-M",
+    "sourcePlatform": "wanzhen",
+    "targetPlatform": "ecpro",
+    "sourceValue": "1",
+    "targetValue": "9",
+    "result": "conflict"
+  },
+  {
     "id": "diff-product-title",
     "scopeId": "product",
     "dataItem": "商品：针织衫（奶白）",
@@ -12,10 +22,10 @@
   {
     "id": "diff-sku-m",
     "scopeId": "sku",
-    "dataItem": "SKU：KNIT-001-M",
+    "dataItem": "SKU：KNIT-003-S",
     "sourcePlatform": "wanzhen",
     "targetPlatform": "ecpro",
-    "sourceValue": "库存 128",
+    "sourceValue": "库存 64",
     "targetValue": "不存在",
     "result": "added"
   },

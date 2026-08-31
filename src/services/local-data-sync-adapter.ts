@@ -5,6 +5,7 @@ import localFilesFixture from "../data/data-sync/local-files.json";
 import wanzhenFixture from "../data/data-sync/wanzhen.json";
 import type {
   DataScopeId,
+  DifferenceResolution,
   LocalSyncTask,
   PlatformId,
   SyncDataScope,
@@ -48,15 +49,24 @@ export const localDataSyncAdapter = {
     return filterDifferences(sourceIds, targetIds, scopeIds);
   },
 
-  async createTask(sourceIds: PlatformId[], targetIds: PlatformId[], scopeIds: DataScopeId[]): Promise<LocalSyncTask> {
+  async createTask(
+    sourceIds: PlatformId[],
+    targetIds: PlatformId[],
+    scopeIds: DataScopeId[],
+    resolutions: Record<string, DifferenceResolution>,
+  ): Promise<LocalSyncTask> {
     await new Promise((resolve) => window.setTimeout(resolve, 450));
+    const differences = filterDifferences(sourceIds, targetIds, scopeIds);
     return {
       id: `local-sync-${Date.now()}`,
       createdAt: new Date().toISOString(),
       sourceIds,
       targetIds,
       scopeIds,
-      differenceCount: filterDifferences(sourceIds, targetIds, scopeIds).length,
+      differenceCount: differences.length,
+      overwriteCount: differences.filter((difference) => resolutions[difference.id] === "overwrite").length,
+      skippedCount: differences.filter((difference) => resolutions[difference.id] === "skip").length,
+      resolutions,
       mode: "local-mock",
     };
   },

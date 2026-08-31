@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { localDataSyncAdapter } from "../services/local-data-sync-adapter";
-import type { DataScopeId, LocalSyncTask, PlatformId, SyncPlatform } from "../types/data-sync";
+import type { DataScopeId, DifferenceResolution, LocalSyncTask, PlatformId, SyncPlatform } from "../types/data-sync";
 
 function toggleSet<T>(current: Set<T>, id: T) {
   const next = new Set(current);
@@ -18,6 +18,7 @@ export function useDataSyncWorkflow() {
   const [isCreating, setIsCreating] = useState(false);
   const [createdTask, setCreatedTask] = useState<LocalSyncTask | null>(null);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
+  const [conflictResolutions, setConflictResolutions] = useState<Record<string, DifferenceResolution>>({});
 
   useEffect(() => {
     void localDataSyncAdapter.getPlatforms().then(setPlatforms);
@@ -31,6 +32,14 @@ export function useDataSyncWorkflow() {
     () => localDataSyncAdapter.preview(sourceList, targetList, scopeList),
     [scopeList, sourceList, targetList],
   );
+  const unresolvedConflictCount = differences.filter(
+    (difference) => difference.result === "conflict" && !conflictResolutions[difference.id],
+  ).length;
+
+  const resolveDifference = (id: string, resolution: DifferenceResolution) => {
+    setCreatedTask(null);
+    setConflictResolutions((current) => ({ ...current, [id]: resolution }));
+  };
   const toggleSource = (id: PlatformId) => {
     setCreatedTask(null);
     const platformLabel = platforms.find((platform) => platform.id === id)?.label ?? id;
@@ -63,10 +72,16 @@ export function useDataSyncWorkflow() {
   };
 
   const createTask = async () => {
-    if (!sourceIds.size || !targetIds.size || !scopeIds.size) return;
+    if (!sourceIds.size || !targetIds.size || !scopeIds.size || unresolvedConflictCount) return;
+    const resolutions = Object.fromEntries(differences.map((difference) => [
+      difference.id,
+      difference.result === "conflict"
+        ? conflictResolutions[difference.id]
+        : difference.result === "skipped" ? "skip" : "overwrite",
+    ])) as Record<string, DifferenceResolution>;
     setIsCreating(true);
     try {
-      setCreatedTask(await localDataSyncAdapter.createTask(sourceList, targetList, scopeList));
+      setCreatedTask(await localDataSyncAdapter.createTask(sourceList, targetList, scopeList, resolutions));
     } finally {
       setIsCreating(false);
     }
@@ -79,13 +94,16 @@ export function useDataSyncWorkflow() {
     scopes,
     scopeIds,
     differences,
+    conflictResolutions,
+    unresolvedConflictCount,
     isCreating,
     createdTask,
     selectionNotice,
-    canCreate: sourceIds.size > 0 && targetIds.size > 0 && scopeIds.size > 0,
+    canCreate: sourceIds.size > 0 && targetIds.size > 0 && scopeIds.size > 0 && unresolvedConflictCount === 0,
     toggleSource,
     toggleTarget,
     toggleScope,
+    resolveDifference,
     createTask,
   };
 }

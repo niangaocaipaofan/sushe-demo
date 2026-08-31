@@ -4,6 +4,8 @@ export type DataScopeId = "product" | "sku" | "price" | "content" | "media" | "a
 
 export type DifferenceResult = "added" | "updated" | "conflict" | "skipped";
 
+export type DifferenceResolution = "overwrite" | "skip";
+
 export interface SyncPlatform {
   id: PlatformId;
   label: string;
@@ -38,5 +40,8 @@ export interface LocalSyncTask {
   targetIds: PlatformId[];
   scopeIds: DataScopeId[];
   differenceCount: number;
+  overwriteCount: number;
+  skippedCount: number;
+  resolutions: Record<string, DifferenceResolution>;
   mode: "local-mock";
 }
