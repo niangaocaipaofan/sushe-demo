@@ -22,9 +22,11 @@ import { AgentTabIcon } from "./AgentTabIcon";
 import { DataSyncWorkspace } from "./DataSyncWorkspace";
 import { MaterialCategorySection } from "./MaterialCategorySection";
 import { MaterialGenerationStatus } from "./MaterialGenerationStatus";
+import { workspaceTabIconPaths } from "./WorkspaceTabIcon";
 
 interface NodeWorkspaceProps {
   node: WorkflowNode | null;
+  spuId: string;
   onComplete: () => void;
   onOwnerChange: (owner: string[] | undefined) => void;
   onPlannedStartChange: (plannedStart: string | undefined) => void;
@@ -64,8 +66,8 @@ const promptPresetOptions = [
 ] as const;
 
 const tabIcons = {
-  database: "M735-567q105-47 105-113T735-793q-105-47-255-47t-255 47q-105 47-105 113t105 113q105 47 255 47t255-47ZM582.5-428.5Q644-437 701-456t98-49.5q41-30.5 41-74.5v100q0 44-41 74.5T701-356q-57 19-118.5 27.5T480-320q-41 0-102.5-8.5T259-356q-57-19-98-49.5T120-480v-100q0 44 41 74.5t98 49.5q57 19 118.5 27.5T480-420q41 0 102.5-8.5Zm0 200Q644-237 701-256t98-49.5q41-30.5 41-74.5v100q0 44-41 74.5T701-156q-57 19-118.5 27.5T480-120q-41 0-102.5-8.5T259-156q-57-19-98-49.5T120-280v-100q0 44 41 74.5t98 49.5q57 19 118.5 27.5T480-220q41 0 102.5-8.5Z",
-  attachFile: "M720-330q0 104-73 177T470-80q-104 0-177-73t-73-177v-370q0-75 52.5-127.5T400-880q75 0 127.5 52.5T580-700v350q0 46-32 78t-78 32q-46 0-78-32t-32-78v-330q0-17 11.5-28.5T400-720q17 0 28.5 11.5T440-680v330q0 13 8.5 21.5T470-320q13 0 21.5-8.5T500-350v-350q-1-42-29.5-71T400-800q-42 0-71 29t-29 71v370q-1 71 49 120.5T470-160q70 0 119-49.5T640-330v-350q0-17 11.5-28.5T680-720q17 0 28.5 11.5T720-680v350Z",
+  database: workspaceTabIconPaths.database,
+  attachFile: workspaceTabIconPaths.attachFile,
   flashOn: "M406-157.5q-6-7.5-6-18.5v-224h-40q-33 0-56.5-23.5T280-480v-320q0-33 23.5-56.5T360-880h234q32 0 51.5 25t11.5 55l-57 200h45q36 0 53.5 32t-3.5 62L455-159q-6 9-15.5 12t-18.5 0q-9-3-15-10.5Z",
   sync: "M240-478q0 45 17 87.5t53 78.5l10 10v-58q0-17 11.5-28.5T360-400q17 0 28.5 11.5T400-360v160q0 17-11.5 28.5T360-160H200q-17 0-28.5-11.5T160-200q0-17 11.5-28.5T200-240h70l-16-14q-52-46-73-105t-21-119q0-94 48-170.5T337-766q14-8 29.5-1t20.5 23q5 15-.5 30T367-691q-58 32-92.5 88.5T240-478Zm480-4q0-45-17-87.5T650-648l-10-10v58q0 17-11.5 28.5T600-560q-17 0-28.5-11.5T560-600v-160q0-17 11.5-28.5T600-800h160q17 0 28.5 11.5T800-760q0 17-11.5 28.5T760-720h-70l16 14q49 49 71.5 106.5T800-482q0 94-48 170.5T623-194q-14 8-29.5 1T573-216q-5-15 .5-30t19.5-23q58-32 92.5-88.5T720-482Z",
   eyeTracking: "M120-40q-33 0-56.5-23.5T40-120v-80q0-17 11.5-28.5T80-240q17 0 28.5 11.5T120-200v80h80q17 0 28.5 11.5T240-80q0 17-11.5 28.5T200-40h-80Zm720 0h-80q-17 0-28.5-11.5T720-80q0-17 11.5-28.5T760-120h80v-80q0-17 11.5-28.5T880-240q17 0 28.5 11.5T920-200v80q0 33-23.5 56.5T840-40ZM480-220q-106 0-196-56T143-429q-6-12-9-24.5t-3-25.5q0-14 3-27t9-25q51-97 141-153t196-56q106 0 196 56t141 153q6 12 9 24.5t3 26.5q0 14-3 26.5t-9 24.5q-51 97-141 153t-196 56Zm0-120q58 0 99-41t41-99q0-58-41-99t-99-41q-58 0-99 41t-41 99q0 58 41 99t99 41Zm0-80q-25 0-42.5-17.5T420-480q0-25 17.5-42.5T480-540q25 0 42.5 17.5T540-480q0 25-17.5 42.5T480-420Zm440-420v80q0 17-11.5 28.5T880-720q-17 0-28.5-11.5T840-760v-80h-80q-17 0-28.5-11.5T720-880q0-17 11.5-28.5T760-920h80q33 0 56.5 23.5T920-840Zm-800-80h80q17 0 28.5 11.5T240-880q0 17-11.5 28.5T200-840h-80v80q0 17-11.5 28.5T80-720q-17 0-28.5-11.5T40-760v-80q0-33 23.5-56.5T120-920Z",
@@ -785,6 +787,7 @@ function CheckIcon() {
 
 export function NodeWorkspace({
   node,
+  spuId,
   onComplete,
   onOwnerChange,
   onPlannedStartChange,
@@ -878,7 +881,7 @@ export function NodeWorkspace({
           <iframe className="node-embed-frame" src="https://cms.ecpro.com/login" title="ECPro 登录页" loading="lazy" />
         </div>
         {activeTab === "ai-materials" && <MaterialGenerationWorkspace />}
-        {activeTab === "data-sync" && node.templateId === "complete-link" && <DataSyncWorkspace />}
+        {activeTab === "data-sync" && node.templateId === "complete-link" && <DataSyncWorkspace key={spuId} spuId={spuId} />}
         {placeholder && <div className="empty-workspace">{placeholder}</div>}
       </div>
 

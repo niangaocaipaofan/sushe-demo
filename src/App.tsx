@@ -176,6 +176,7 @@ export default function App() {
 
             <NodeWorkspace
               node={selectedNode}
+              spuId={selectedProduct.spu}
               onComplete={handleCompleteNode}
               onOwnerChange={handleOwnerChange}
               onPlannedStartChange={handlePlannedStartChange}

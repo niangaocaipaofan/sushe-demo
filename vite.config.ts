@@ -2,11 +2,29 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { createDataSyncMessageHandler, type DataSyncMessageInput } from "./server/data-sync-message-handler.ts";
+import { routeIntentPrompt, schemaMappingPrompt, valueMappingPrompt } from "./server/data-sync-prompts.ts";
 
 type OrchestratorRequest = {
   productFacts: unknown;
   referenceMaterials: unknown;
   generationRequirements: unknown;
+};
+
+type DataSyncAgentRequest = {
+  stage?: unknown;
+  sourceId?: unknown;
+  targetId?: unknown;
+  sourceSchema?: unknown;
+  targetSchema?: unknown;
+  sourceContent?: unknown;
+  targetContent?: unknown;
+  schemaMappings?: unknown;
+  differences?: unknown;
+  conversation?: unknown;
+  hasFile?: unknown;
+  fileName?: unknown;
+  currentPageSpuId?: unknown;
 };
 
 type ImageGenerationRequest = {
@@ -104,6 +122,101 @@ function isPlan(value: unknown): value is { summary: string; categories: unknown
   });
 }
 
+function isSyncPlatformId(value: unknown) {
+  return value === "wanzhen" || value === "yishanghuo" || value === "jushuitan";
+}
+
+function isDataSyncAgentResult(stage: "route" | "schema" | "value", value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (stage === "route") {
+    const route = value as { reply?: unknown; action?: unknown };
+    if (typeof route.reply !== "string") return false;
+    if (route.action === null) return true;
+    if (!route.action || typeof route.action !== "object") return false;
+    const action = route.action as { spuId?: unknown; sourceType?: unknown; sourceId?: unknown; targetId?: unknown };
+    if (typeof action.spuId !== "string" || !action.spuId.trim() || !isSyncPlatformId(action.targetId)) return false;
+    return action.sourceType === "file"
+      ? action.sourceId === null
+      : action.sourceType === "platform" && isSyncPlatformId(action.sourceId) && action.sourceId !== action.targetId;
+  }
+  if (stage === "schema") {
+    const mappings = (value as { mappings?: unknown }).mappings;
+    return Array.isArray(mappings) && mappings.every((mapping) => mapping && typeof mapping === "object"
+      && typeof (mapping as { sourceFieldKey?: unknown }).sourceFieldKey === "string"
+      && ((mapping as { sourceScope?: unknown }).sourceScope === "SPU" || (mapping as { sourceScope?: unknown }).sourceScope === "SKU")
+      && typeof (mapping as { targetFieldKey?: unknown }).targetFieldKey === "string"
+      && typeof (mapping as { createTargetField?: unknown }).createTargetField === "boolean");
+  }
+  const resolutions = (value as { resolutions?: unknown }).resolutions;
+  return Array.isArray(resolutions) && resolutions.every((resolution) => resolution && typeof resolution === "object"
+    && typeof (resolution as { differenceId?: unknown }).differenceId === "string"
+    && ((resolution as { resolution?: unknown }).resolution === "overwrite" || (resolution as { resolution?: unknown }).resolution === "skip"));
+}
+
+function isDataSyncMessageInput(value: unknown): value is DataSyncMessageInput {
+  if (!value || typeof value !== "object") return false;
+  const input = value as Partial<DataSyncMessageInput>;
+  if (typeof input.conversationId !== "string" || !input.conversationId.trim()
+    || typeof input.messageId !== "string" || !input.messageId.trim()
+    || typeof input.userId !== "string" || !input.userId.trim()
+    || typeof input.message !== "string" || !input.message.trim()) return false;
+  return input.context === undefined || (Boolean(input.context) && typeof input.context === "object" && !Array.isArray(input.context)
+    && (input.context.spuId === undefined || (typeof input.context.spuId === "string" && Boolean(input.context.spuId.trim()))));
+}
+
+async function callDeepSeekDataSync(apiKey: string, model: string, input: DataSyncAgentRequest) {
+  const stage = input.stage as "route" | "schema" | "value";
+  const systemPrompt = stage === "route"
+    ? `${routeIntentPrompt}\n\n调用上下文：${typeof input.currentPageSpuId === "string" ? `currentPageSpuId=${JSON.stringify(input.currentPageSpuId)}。这是当前页面可信上下文。` : "未提供 currentPageSpuId，必须要求用户在对话中明确提供 SPU ID。"}`
+    : stage === "schema" ? schemaMappingPrompt : valueMappingPrompt;
+
+  console.log(`\n[DeepSeek req] /api/data-sync-agent · ${stage}`);
+  console.log(JSON.stringify(input, null, 2));
+  const deepSeekResponse = await fetch("https://api.deepseek.com/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      temperature: 0.1,
+      max_tokens: 4000,
+      stream: false,
+      thinking: { type: "disabled" },
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: JSON.stringify(input) },
+      ],
+    }),
+  });
+  const apiPayload = await deepSeekResponse.json().catch(() => null) as {
+    error?: { message?: string };
+    choices?: Array<{ message?: { content?: string | null } }>;
+  } | null;
+  console.log(`[DeepSeek resp · data-sync/${stage}] HTTP ${deepSeekResponse.status}`);
+  console.log(JSON.stringify(apiPayload, null, 2));
+  if (!deepSeekResponse.ok) throw new Error(apiPayload?.error?.message ?? "DeepSeek API 请求失败");
+  const content = apiPayload?.choices?.[0]?.message?.content;
+  if (!content) throw new Error("DeepSeek 没有返回数据同步建议");
+  const result: unknown = JSON.parse(content);
+  if (!isDataSyncAgentResult(stage, result)) throw new Error("DeepSeek 返回的数据同步建议结构不完整");
+  if (stage === "route") {
+    const route = result as { reply: string; action: null | { spuId: string } };
+    if (route.action) {
+      if (typeof input.currentPageSpuId === "string" && route.action.spuId !== input.currentPageSpuId) {
+        return { reply: `当前页面只能同步 SPU ${input.currentPageSpuId}`, action: null };
+      }
+      if (input.currentPageSpuId === undefined) {
+        const userText = (input.conversation as Array<{ role: string; content: string }>)
+          .filter((message) => message.role === "user")
+          .map((message) => message.content)
+          .join("\n");
+        if (!userText.includes(route.action.spuId)) return { reply: "请明确提供本次同步的 SPU ID", action: null };
+      }
+    }
+  }
+  return result;
+}
+
 function deepSeekOrchestratorPlugin(apiKey: string | undefined, model: string): Plugin {
   return {
     name: "local-deepseek-orchestrator",
@@ -176,6 +289,73 @@ function deepSeekOrchestratorPlugin(apiKey: string | undefined, model: string): 
         } catch (error) {
           console.error("[DeepSeek error]", error);
           return sendJson(response, 500, { error: error instanceof Error ? error.message : "物料规划服务异常" });
+        }
+      });
+    },
+  };
+}
+
+function deepSeekDataSyncPlugin(apiKey: string | undefined, model: string): Plugin {
+  const handleDataSyncMessage = createDataSyncMessageHandler((stage, input) => {
+    if (!apiKey) throw new Error("未配置 DEEPSEEK_API_KEY");
+    return callDeepSeekDataSync(apiKey, model, { stage, ...input });
+  });
+  return {
+    name: "local-deepseek-data-sync-agent",
+    configureServer(server) {
+      server.middlewares.use("/api/data-sync-agent/message", async (request, response) => {
+        if (request.method !== "POST") return sendJson(response, 405, { error: "只支持 POST 请求" });
+        if (!apiKey) return sendJson(response, 503, { error: "未配置 DEEPSEEK_API_KEY。请填写 .env.local 后重启 npm run dev。" });
+        try {
+          const input = await readJsonBody<unknown>(request);
+          if (!isDataSyncMessageInput(input)) return sendJson(response, 400, { error: "数据同步消息输入格式不正确" });
+          console.log("\n[Data Sync message req]");
+          console.log(JSON.stringify(input, null, 2));
+          const result = await handleDataSyncMessage(input);
+          console.log("[Data Sync message resp]");
+          console.log(JSON.stringify(result, null, 2));
+          return sendJson(response, 200, result);
+        } catch (error) {
+          console.error("[Data Sync message error]", error);
+          return sendJson(response, 500, { error: error instanceof Error ? error.message : "数据同步消息处理异常" });
+        }
+      });
+
+      server.middlewares.use("/api/data-sync-agent", async (request, response) => {
+        if (request.method !== "POST") return sendJson(response, 405, { error: "只支持 POST 请求" });
+        if (!apiKey) return sendJson(response, 503, { error: "未配置 DEEPSEEK_API_KEY。请填写 .env.local 后重启 npm run dev。" });
+
+        try {
+          const input = await readJsonBody<DataSyncAgentRequest>(request);
+          if (input.stage !== "route" && input.stage !== "schema" && input.stage !== "value") {
+            return sendJson(response, 400, { error: "数据同步 Agent stage 不正确" });
+          }
+          if (input.stage !== "route" && (typeof input.sourceId !== "string" || typeof input.targetId !== "string")) {
+            return sendJson(response, 400, { error: "数据同步 Agent 缺少来源或目标平台" });
+          }
+          if (input.stage === "route" && (!Array.isArray(input.conversation) || typeof input.hasFile !== "boolean")) {
+            return sendJson(response, 400, { error: "同步路由对话输入格式不正确" });
+          }
+          if (input.stage === "route" && !(input.conversation as unknown[]).every((message) => message && typeof message === "object"
+            && ((message as { role?: unknown }).role === "user" || (message as { role?: unknown }).role === "assistant")
+            && typeof (message as { content?: unknown }).content === "string")) {
+            return sendJson(response, 400, { error: "同步路由对话消息格式不正确" });
+          }
+          if (input.stage === "route" && input.currentPageSpuId !== undefined && (typeof input.currentPageSpuId !== "string" || !input.currentPageSpuId.trim())) {
+            return sendJson(response, 400, { error: "当前页面 SPU ID 格式不正确" });
+          }
+          if (input.stage === "schema" && (!Array.isArray(input.sourceSchema) || !Array.isArray(input.targetSchema) || !input.sourceContent || !input.targetContent)) {
+            return sendJson(response, 400, { error: "Schema mapping 输入格式不正确" });
+          }
+          if (input.stage === "value" && (!input.schemaMappings || !Array.isArray(input.differences))) {
+            return sendJson(response, 400, { error: "Value mapping 输入格式不正确" });
+          }
+
+          const result = await callDeepSeekDataSync(apiKey, model, input);
+          return sendJson(response, 200, result);
+        } catch (error) {
+          console.error("[DeepSeek data-sync error]", error);
+          return sendJson(response, 500, { error: error instanceof Error ? error.message : "数据同步 Agent 异常" });
         }
       });
     },
@@ -290,6 +470,7 @@ export default defineConfig(({ mode }) => {
       react(),
       tailwindcss(),
       deepSeekOrchestratorPlugin(env.DEEPSEEK_API_KEY, env.DEEPSEEK_MODEL || "deepseek-v4-flash"),
+      deepSeekDataSyncPlugin(env.DEEPSEEK_API_KEY, env.DEEPSEEK_MODEL || "deepseek-v4-flash"),
       imageGenerationPlugin(env.IMAGE_API_KEY, env.IMAGE_API_BASE_URL, Number(env.IMAGE_API_TIMEOUT_MS || 120_000)),
     ],
   };
