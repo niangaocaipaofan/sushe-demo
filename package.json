@@ -14,10 +14,11 @@
     "@heroui/react": "^3.2.4",
     "@heroui/styles": "^3.2.4",
     "@internationalized/date": "^3.12.3",
-    "@phosphor-icons/react": "^2.1.10",
     "@xyflow/react": "latest",
+    "mammoth": "^1.12.2",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "read-excel-file": "^9.3.10"
   },
   "devDependencies": {
     "@tailwindcss/vite": "latest",

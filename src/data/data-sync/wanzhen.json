@@ -1,15 +1,1 @@
-{
-  "id": "wanzhen",
-  "label": "万阵",
-  "mode": "local-mock",
-  "recordCount": 12845,
-  "updatedAt": "2026-08-31T10:30:00+08:00",
-  "scopes": {
-    "product": 12450,
-    "sku": 18765,
-    "price": 8242,
-    "content": 48920,
-    "media": 98240,
-    "attributes": 42120
-  }
-}
+{"source":"万阵","products":[{"spu":{"id":"SPU-260827-001","attributes":{"category":"针织上衣","material":"90%聚酯纤维 10%氨纶","fit":"修身","season":"2026秋季","style":"通勤","fitting_size":"M"}},"skus":[{"id":"SPU-260827-001-WHITE-S","attributes":{"color":"白色","size":"S"}},{"id":"SPU-260827-001-WHITE-M","attributes":{"color":"白色","size":"M"}},{"id":"SPU-260827-001-BLACK-S","attributes":{"color":"黑色","size":"S"}},{"id":"SPU-260827-001-BLACK-M","attributes":{"color":"黑色","size":"M"}}]},{"spu":{"id":"SPU-260827-002","attributes":{"category":"连衣裙","material":"醋酸混纺","fit":"收腰","season":"2026秋季","style":"优雅"}},"skus":[{"id":"SPU-260827-002-BLACK-S","attributes":{"color":"黑色","size":"S"}},{"id":"SPU-260827-002-BLACK-M","attributes":{"color":"黑色","size":"M"}}]},{"spu":{"id":"SPU-260827-003","attributes":{"category":"西装","material":"羊毛混纺","fit":"合体","season":"2026秋季","style":"商务"}},"skus":[{"id":"SPU-260827-003-GRAY-M","attributes":{"color":"灰色","size":"M"}},{"id":"SPU-260827-003-GRAY-L","attributes":{"color":"灰色","size":"L"}}]}]}

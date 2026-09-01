@@ -1,26 +1,17 @@
-import type { DataScopeId, SyncDataScope } from "../../types/data-sync";
+import type { SyncContent } from "../../types/data-sync";
 
-interface DataScopeSelectorProps {
-  scopes: SyncDataScope[];
-  selectedIds: Set<DataScopeId>;
-  onToggle: (id: DataScopeId) => void;
-}
+interface DataScopeSelectorProps { content: SyncContent; }
 
-const numberFormatter = new Intl.NumberFormat("zh-CN");
-
-export function DataScopeSelector({ scopes, selectedIds, onToggle }: DataScopeSelectorProps) {
-  return (
-    <section className="sync-route-panel sync-scope-panel" aria-label="同步内容">
-      <div className="sync-route-panel-title"><strong>同步内容</strong><span>{selectedIds.size} 类数据</span></div>
-      <div className="sync-scope-options">
-        {scopes.map((scope) => (
-          <label className={`sync-scope-option${selectedIds.has(scope.id) ? " is-selected" : ""}`} key={scope.id}>
-            <input type="checkbox" checked={selectedIds.has(scope.id)} onChange={() => onToggle(scope.id)} />
-            <span><strong>{scope.label}</strong><small>{scope.description}</small></span>
-            <b>{numberFormatter.format(scope.count)}</b>
-          </label>
-        ))}
-      </div>
-    </section>
-  );
+export function DataScopeSelector({ content }: DataScopeSelectorProps) {
+  return <section className="sync-content-section" aria-label="同步内容">
+    <div className="sync-section-heading"><div><strong>同步内容</strong><small>SPU 基础信息与其下所有 SKU 信息</small></div><span>{content.spu.id} · {content.skus.length} 个 SKU</span></div>
+    <div className="sync-content-tables">
+      <div className="sync-table-wrap sync-content-table-wrap"><table className="sync-table"><thead><tr><th colSpan={2}>SPU 信息 · {content.spu.id}</th></tr></thead><tbody>
+        {content.spu.fields.map((field) => <tr key={field.id}><td>{field.label}</td><td className="sync-field-value">{field.value}</td></tr>)}
+      </tbody></table></div>
+      <div className="sync-table-wrap sync-content-table-wrap sync-sku-table-wrap"><table className="sync-table sync-sku-table"><thead><tr><th>SKU 信息</th><th>颜色</th><th>尺码</th><th>库存</th></tr></thead><tbody>
+        {content.skus.map((sku) => { const values = Object.fromEntries(sku.fields.map((field) => [field.label, field.value])); return <tr key={sku.id}><td><code>{sku.id}</code></td><td>{values.颜色 ?? "—"}</td><td>{values.尺码 ?? "—"}</td><td>{values.库存 ?? "—"}</td></tr>; })}
+      </tbody></table></div>
+    </div>
+  </section>;
 }

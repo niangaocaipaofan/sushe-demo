@@ -1,15 +1,1 @@
-{
-  "id": "jushuitan",
-  "label": "聚水潭",
-  "mode": "local-mock",
-  "recordCount": 15678,
-  "updatedAt": "2026-08-31T10:18:00+08:00",
-  "scopes": {
-    "product": 11692,
-    "sku": 20000,
-    "price": 9842,
-    "content": 44246,
-    "media": 126080,
-    "attributes": 50272
-  }
-}
+{"source":"聚水潭","products":[{"spu":{"id":"SPU-260827-001","attributes":{"category":"针织上衣","season":"2026秋季"}},"skus":[{"id":"SPU-260827-001-WHITE-S","attributes":{"color":"白色","size":"S","stock":128}},{"id":"SPU-260827-001-WHITE-M","attributes":{"color":"白色","size":"M","stock":96}},{"id":"SPU-260827-001-BLACK-S","attributes":{"color":"黑色","size":"S","stock":112}},{"id":"SPU-260827-001-BLACK-M","attributes":{"color":"黑色","size":"M","stock":83}}]},{"spu":{"id":"SPU-260827-002","attributes":{"category":"连衣裙","season":"2026秋季"}},"skus":[{"id":"SPU-260827-002-BLACK-S","attributes":{"color":"黑色","size":"S","stock":57}},{"id":"SPU-260827-002-BLACK-M","attributes":{"color":"黑色","size":"M","stock":43}}]},{"spu":{"id":"SPU-260827-003","attributes":{"category":"西装","season":"2026秋季"}},"skus":[{"id":"SPU-260827-003-GRAY-M","attributes":{"color":"灰色","size":"M","stock":35}},{"id":"SPU-260827-003-GRAY-L","attributes":{"color":"灰色","size":"L","stock":21}}]}]}
