@@ -1,10 +1,11 @@
 import type {
+  DifferenceResolution,
+  LocalSyncTask,
   PlatformId,
   SchemaMappingSuggestion,
   SchemaMappings,
   SyncContent,
   SyncDifference,
-  SyncSchemaField,
   SyncSourceId,
   ValueMappingSuggestion,
 } from "../types/data-sync";
@@ -27,10 +28,7 @@ export interface SyncRouteProposal {
 interface SchemaProposalInput {
   sourceId: SyncSourceId;
   targetId: PlatformId;
-  sourceSchema: SyncSchemaField[];
-  targetSchema: SyncSchemaField[];
   sourceContent: SyncContent;
-  targetContent: SyncContent;
 }
 
 interface ValueProposalInput {
@@ -40,8 +38,8 @@ interface ValueProposalInput {
   differences: SyncDifference[];
 }
 
-async function callDataSyncAgent<T>(body: unknown): Promise<T> {
-  const response = await fetch("/api/data-sync-agent", {
+async function callDataSyncAgent<T>(body: unknown, path = "/api/data-sync-agent"): Promise<T> {
+  const response = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -50,19 +48,36 @@ async function callDataSyncAgent<T>(body: unknown): Promise<T> {
   if (!response.ok) {
     throw new Error(payload && typeof payload === "object" && "error" in payload && payload.error
       ? payload.error
-      : "数据同步 Agent 暂时不可用");
+      : "数据协同专员暂时不可用");
   }
   return payload as T;
 }
 
 export async function proposeSchemaMappings(input: SchemaProposalInput): Promise<SchemaMappingSuggestion[]> {
-  const result = await callDataSyncAgent<{ mappings: SchemaMappingSuggestion[] }>({ stage: "schema", ...input });
+  const result = await callDataSyncAgent<{ mappings: SchemaMappingSuggestion[] }>({
+    spuId: input.sourceContent.spu.id,
+    sourceId: input.sourceId,
+    targetId: input.targetId,
+    ...(input.sourceId === "uploaded-file" ? { sourceContent: input.sourceContent } : {}),
+  }, "/api/data-sync/schema");
   return result.mappings;
 }
 
 export async function proposeValueMappings(input: ValueProposalInput): Promise<ValueMappingSuggestion[]> {
-  const result = await callDataSyncAgent<{ resolutions: ValueMappingSuggestion[] }>({ stage: "value", ...input });
+  const result = await callDataSyncAgent<{ resolutions: ValueMappingSuggestion[] }>(input, "/api/data-sync/value-suggestions");
   return result.resolutions;
+}
+
+export async function executeDataSync(input: {
+  spuId: string;
+  sourceId: SyncSourceId;
+  targetId: PlatformId;
+  schemaMappings: SchemaMappings;
+  selectedMappingIds: string[];
+  resolutions: Record<string, DifferenceResolution>;
+  sourceContent?: SyncContent;
+}): Promise<LocalSyncTask> {
+  return callDataSyncAgent<LocalSyncTask>(input, "/api/data-sync/execute");
 }
 
 export async function proposeSyncRoute(conversation: SyncConversationMessage[], fileName?: string, currentPageSpuId?: string): Promise<SyncRouteProposal> {

@@ -15,7 +15,7 @@ export function DataSyncWorkspace({ spuId }: DataSyncWorkspaceProps) {
   const resultCount = workflow.tasks.filter((task) => task.result).length;
 
   return (
-    <section className="data-sync-workspace" aria-label="数据同步 Agent 工作区">
+    <section className="data-sync-workspace" aria-label="数据协同专员工作区">
       <div className="sync-two-column-layout">
         <section className="sync-task-column" aria-label="任务列表">
           <div className="sync-column-heading"><div><strong>任务列表</strong><small>配置来源、终点以及两步映射</small></div><span>{workflow.tasks.length}</span></div>

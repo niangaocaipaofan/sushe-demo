@@ -3,8 +3,6 @@ import type { GenerationTask } from "../types/material-generation";
 const statusLabel: Record<GenerationTask["status"], string> = {
   planned: "等待生成",
   generating: "生成中...",
-  reviewing: "质检中...",
-  retrying: "重新生成中...",
   completed: "已完成",
   failed: "生成失败",
 };
@@ -18,8 +16,8 @@ export function MaterialImageCard({
 }) {
   const showImage = Boolean(task.imageUrl) && !["planned", "generating"].includes(task.status);
   const statusDetail = task.status === "failed"
-    ? task.errorMessage || task.reviewFeedback || "生成失败，未返回具体原因"
-    : task.attempt > 0 ? `${task.attempt} 次生成` : "等待生成";
+    ? task.errorMessage || "生成失败，未返回具体原因"
+    : task.status === "completed" ? "已生成" : "等待生成";
 
   return (
     <article className={`material-image-card is-${task.status}`}>
@@ -31,7 +29,6 @@ export function MaterialImageCard({
       </div>
       <div className="material-image-card-status">
         <span title={statusDetail}>{statusDetail}</span>
-        {task.status === "reviewing" && <i>AI</i>}
       </div>
       <div className="material-image-card-preview">
         {showImage ? (

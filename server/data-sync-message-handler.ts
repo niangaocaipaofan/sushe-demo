@@ -3,29 +3,17 @@ import { randomUUID } from "node:crypto";
 import type {
   DifferenceResolution,
   PlatformId,
-  SchemaMappingSuggestion,
   SchemaMappings,
   SyncDifference,
   SyncSchemaField,
-  ValueMappingSuggestion,
 } from "../src/types/data-sync.ts";
 import {
-  compareMockValues,
-  executeMockSync,
-  getMockContent,
   mappingId,
-  mappingsFromSuggestions,
   platformLabel,
-  schemaForContent,
 } from "./data-sync-mock-adapter.ts";
+import type { DataAgentMessageInput, DataSyncIntent, DataSyncService } from "./data-sync-service.ts";
 
-export interface DataSyncMessageInput {
-  conversationId: string;
-  messageId: string;
-  userId: string;
-  message: string;
-  context?: { spuId?: string };
-}
+export type DataSyncMessageInput = DataAgentMessageInput;
 
 type SessionStatus =
   | "collecting_route"
@@ -51,6 +39,7 @@ export interface DataSyncMessageResponse {
 interface DataSyncSession {
   id: string;
   status: SessionStatus;
+  intent?: DataSyncIntent;
   conversation: Array<{ role: "user" | "assistant"; content: string }>;
   spuId?: string;
   sourceId?: PlatformId;
@@ -62,8 +51,6 @@ interface DataSyncSession {
   resolutions?: Record<string, DifferenceResolution>;
   lastResponse?: DataSyncMessageResponse;
 }
-
-type RunAgentStage = (stage: "route" | "schema" | "value", input: Record<string, unknown>) => Promise<unknown>;
 
 const sessions = new Map<string, DataSyncSession>();
 const responsesByMessage = new Map<string, DataSyncMessageResponse>();
@@ -88,7 +75,7 @@ function isCancellation(message: string) {
   return /^(取消|算了|停止|cancel)[！!。.\s]*$/i.test(message.trim());
 }
 
-function schemaResponse(session: DataSyncSession, message = "以下是字段映射建议。回复 OK 继续进行值对比。") : DataSyncMessageResponse {
+function schemaResponse(session: DataSyncSession, message = "以下是字段映射建议。回复 OK 查看字段值对比。") : DataSyncMessageResponse {
   const { spuId, sourceId, targetId, sourceSchema = [], targetSchema = [], schemaMappings = {} } = session;
   const rows = sourceSchema.map((sourceField) => {
     const mapping = schemaMappings[mappingId(targetId!, sourceField.scope, sourceField.key)];
@@ -120,11 +107,15 @@ function schemaResponse(session: DataSyncSession, message = "以下是字段映�
   };
 }
 
-function valueResponse(session: DataSyncSession, message = "以下是值对比结果。回复 OK 执行同步。") : DataSyncMessageResponse {
+function valueResponse(
+  session: DataSyncSession,
+  status: Extract<SessionStatus, "waiting_for_value_confirmation" | "completed"> = "waiting_for_value_confirmation",
+  message = "以下是值对比结果。回复 OK 执行同步。",
+) : DataSyncMessageResponse {
   const { spuId, sourceId, targetId, differences = [], resolutions = {} } = session;
   return {
     sessionId: session.id,
-    status: "waiting_for_value_confirmation",
+    status,
     message,
     display: {
       type: "value_table",
@@ -153,7 +144,7 @@ function saveResponse(session: DataSyncSession, input: DataSyncMessageInput, res
   return response;
 }
 
-export function createDataSyncMessageHandler(runAgentStage: RunAgentStage) {
+export function createDataSyncMessageHandler(service: DataSyncService) {
   return async function handleDataSyncMessage(input: DataSyncMessageInput): Promise<DataSyncMessageResponse> {
     const cached = responsesByMessage.get(messageKey(input));
     if (cached) return cached;
@@ -181,14 +172,7 @@ export function createDataSyncMessageHandler(runAgentStage: RunAgentStage) {
 
     if (session.status === "collecting_route") {
       session.conversation.push({ role: "user", content: input.message });
-      const routeResult = await runAgentStage("route", {
-        conversation: session.conversation,
-        hasFile: false,
-        ...(input.context?.spuId ? { currentPageSpuId: input.context.spuId } : {}),
-      }) as {
-        reply: string;
-        action: null | { spuId: string; sourceType: "platform" | "file"; sourceId: PlatformId | null; targetId: PlatformId };
-      };
+      const routeResult = await service.route(session.conversation, input.context);
 
       if (!routeResult.action) {
         session.conversation.push({ role: "assistant", content: routeResult.reply });
@@ -198,28 +182,18 @@ export function createDataSyncMessageHandler(runAgentStage: RunAgentStage) {
         return saveResponse(session, input, { sessionId: session.id, status: "collecting_route", message: "当前入口暂不支持文件来源，请说明来源平台。" });
       }
 
-      const { spuId, sourceId, targetId } = routeResult.action;
-      const sourceContent = getMockContent(sourceId, spuId);
-      const targetContent = getMockContent(targetId, spuId);
-      const sourceSchema = schemaForContent(sourceContent);
-      const targetSchema = schemaForContent(targetContent);
-      const schemaResult = await runAgentStage("schema", {
-        sourceId,
-        targetId,
-        sourceSchema,
-        targetSchema,
-        sourceContent,
-        targetContent,
-      }) as { mappings: SchemaMappingSuggestion[] };
+      const { intent, spuId, sourceId, targetId } = routeResult.action;
+      const schemaResult = await service.suggestSchemaMappings({ spuId, sourceId, targetId });
 
       Object.assign(session, {
         status: "waiting_for_schema_confirmation" as const,
+        intent,
         spuId,
         sourceId,
         targetId,
-        sourceSchema,
-        targetSchema,
-        schemaMappings: mappingsFromSuggestions(targetId, sourceSchema, targetSchema, schemaResult.mappings),
+        sourceSchema: schemaResult.sourceSchema,
+        targetSchema: schemaResult.targetSchema,
+        schemaMappings: schemaResult.schemaMappings,
       });
       return saveResponse(session, input, schemaResponse(session));
     }
@@ -228,32 +202,26 @@ export function createDataSyncMessageHandler(runAgentStage: RunAgentStage) {
       if (!isConfirmation(input.message)) {
         return saveResponse(session, input, schemaResponse(session, "当前等待确认字段映射。请回复 OK 继续，或回复“取消”。"));
       }
-      const differences = compareMockValues(session.spuId!, session.sourceId!, session.targetId!, session.schemaMappings!);
-      const pendingDifferences = differences.filter((difference) => difference.result !== "skipped");
-      const valueResult = pendingDifferences.length
-        ? await runAgentStage("value", {
-            sourceId: session.sourceId,
-            targetId: session.targetId,
-            schemaMappings: session.schemaMappings,
-            differences: pendingDifferences,
-          }) as { resolutions: ValueMappingSuggestion[] }
-        : { resolutions: [] as ValueMappingSuggestion[] };
-      const suggestions = new Map(valueResult.resolutions.map((resolution) => [resolution.differenceId, resolution.resolution]));
-      const missing = pendingDifferences.filter((difference) => !suggestions.has(difference.id));
-      if (missing.length) throw new Error(`Value Mapping 缺少 ${missing.length} 条差异处理建议`);
-      const resolutions = Object.fromEntries(differences.map((difference) => [
-        difference.id,
-        difference.result === "skipped" ? "skip" : suggestions.get(difference.id)!,
-      ])) as Record<string, DifferenceResolution>;
+      const { differences, resolutions } = await service.previewValues({
+        spuId: session.spuId!,
+        sourceId: session.sourceId!,
+        targetId: session.targetId!,
+        schemaMappings: session.schemaMappings!,
+      });
+      if (session.intent === "validation") {
+        session.status = "completed";
+        Object.assign(session, { differences, resolutions });
+        return saveResponse(session, input, valueResponse(session, "completed", "字段值校验完成；本次未执行同步。"));
+      }
       Object.assign(session, { status: "waiting_for_value_confirmation" as const, differences, resolutions });
       return saveResponse(session, input, valueResponse(session));
     }
 
     if (!isConfirmation(input.message)) {
-      return saveResponse(session, input, valueResponse(session, "当前等待确认值对比结果。请回复 OK 执行同步，或回复“取消”。"));
+      return saveResponse(session, input, valueResponse(session, undefined, "当前等待确认值对比结果。请回复 OK 执行同步，或回复“取消”。"));
     }
 
-    const result = executeMockSync(session.differences!, session.resolutions!);
+    const result = service.executeSync(session.differences!, session.resolutions!);
     session.status = "completed";
     return saveResponse(session, input, {
       sessionId: session.id,

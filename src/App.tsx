@@ -5,7 +5,7 @@ import { NodeWorkspace } from "./components/NodeWorkspace";
 import { SidebarNav, type WorkspaceSection } from "./components/SidebarNav";
 import { WorkspaceDashboard } from "./components/WorkspaceDashboard";
 import { WorkflowGraph } from "./components/WorkflowGraph";
-import { productWorkflows } from "./data/workflows";
+import { productWorkflows, type ProductWorkflow } from "./data/workflows";
 
 function LinkIcon() {
   return (
@@ -19,6 +19,14 @@ export default function App() {
   const [workflows, setWorkflows] = useState(productWorkflows);
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("publish");
   const [copied, setCopied] = useState(false);
+  const [isCompleting, setIsCompleting] = useState(false);
+  const [isRollingBack, setIsRollingBack] = useState(false);
+  const [completionError, setCompletionError] = useState<string | null>(null);
+  const [isSavingNodeMetadata, setIsSavingNodeMetadata] = useState(false);
+  const [nodeMetadataError, setNodeMetadataError] = useState<string | null>(null);
+  const [workflowVersions, setWorkflowVersions] = useState<Record<string, number>>(
+    () => Object.fromEntries(productWorkflows.map((workflow) => [workflow.id, 1])),
+  );
   const [selectedProductId, setSelectedProductId] = useState(
     () => localStorage.getItem("sushe:selected-product") ?? productWorkflows[0].id,
   );
@@ -37,6 +45,19 @@ export default function App() {
       localStorage.removeItem("sushe:selected-node");
     }
   }, [selectedNodeId]);
+
+  useEffect(() => {
+    void fetch("/api/workflows")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("无法加载 workflow 状态");
+        return response.json() as Promise<{ workflows: ProductWorkflow[]; workflowVersions: Record<string, number> }>;
+      })
+      .then(({ workflows: storedWorkflows, workflowVersions: storedVersions }) => {
+        setWorkflows(storedWorkflows);
+        setWorkflowVersions(storedVersions);
+      })
+      .catch(() => undefined);
+  }, []);
 
   const selectedProduct = useMemo(
     () =>
@@ -57,82 +78,95 @@ export default function App() {
     );
   };
 
-  const handleCompleteNode = () => {
+  const handleCompleteNode = async () => {
     if (!selectedNode || selectedNode.status !== "running") return;
-
-    setWorkflows((currentWorkflows) =>
-      currentWorkflows.map((workflow) => {
-        if (workflow.id !== selectedProductId) return workflow;
-
-        const completedNodeIds = new Set(
-          workflow.nodes
-            .filter((node) => node.status === "completed" || node.id === selectedNode.id)
-            .map((node) => node.id),
-        );
-        const nextNodes = workflow.nodes.map((node) => {
-          if (node.id === selectedNode.id) return { ...node, status: "completed" as const };
-          if (node.status !== "pending") return node;
-
-          const dependencies = workflow.edges.filter((edge) => edge.target === node.id);
-          return dependencies.length > 0 && dependencies.every((edge) => completedNodeIds.has(edge.source))
-            ? { ...node, status: "running" as const }
-            : node;
-        });
-
-        return { ...workflow, nodes: nextNodes };
-      }),
-    );
+    setIsCompleting(true);
+    setCompletionError(null);
+    try {
+      const response = await fetch("/api/workflow-node-completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workflowId: selectedProductId, nodeId: selectedNode.id }),
+      });
+      const payload = await response.json().catch(() => ({})) as { workflow?: ProductWorkflow; workflowVersion?: number; error?: string };
+      if (!response.ok || !payload.workflow) throw new Error(payload.error ?? "完成节点失败");
+      const nextNode = payload.workflow.nodes.find((node) =>
+        node.status === "running" && payload.workflow!.edges.some((edge) => edge.source === selectedNode.id && edge.target === node.id),
+      ) ?? payload.workflow.nodes.find((node) => node.status === "running");
+      setWorkflows((currentWorkflows) => currentWorkflows.map((workflow) =>
+        workflow.id === payload.workflow!.id ? payload.workflow! : workflow,
+      ));
+      setWorkflowVersions((currentVersions) => ({ ...currentVersions, [selectedProductId]: payload.workflowVersion ?? currentVersions[selectedProductId] + 1 }));
+      if (nextNode) setSelectedNodeId(nextNode.id);
+    } catch (error) {
+      setCompletionError(error instanceof Error ? error.message : "完成节点失败");
+    } finally {
+      setIsCompleting(false);
+    }
   };
 
-  const handleOwnerChange = (owner: string[] | undefined) => {
-    if (!selectedNode) return;
-
-    setWorkflows((currentWorkflows) =>
-      currentWorkflows.map((workflow) =>
-        workflow.id !== selectedProductId
-          ? workflow
-          : {
-              ...workflow,
-              nodes: workflow.nodes.map((node) =>
-                node.id === selectedNode.id ? { ...node, owner } : node,
-              ),
-            },
-      ),
-    );
+  const handleRollbackNode = async () => {
+    if (!selectedNode || selectedNode.status !== "completed") return;
+    setIsRollingBack(true);
+    setCompletionError(null);
+    try {
+      const response = await fetch("/api/workflow-node-rollbacks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workflowId: selectedProductId, nodeId: selectedNode.id }),
+      });
+      const payload = await response.json().catch(() => ({})) as { workflow?: ProductWorkflow; workflowVersion?: number; error?: string };
+      if (!response.ok || !payload.workflow) throw new Error(payload.error ?? "回滚节点失败");
+      setWorkflows((currentWorkflows) => currentWorkflows.map((workflow) =>
+        workflow.id === payload.workflow!.id ? payload.workflow! : workflow,
+      ));
+      setWorkflowVersions((currentVersions) => ({ ...currentVersions, [selectedProductId]: payload.workflowVersion ?? currentVersions[selectedProductId] + 1 }));
+      setSelectedNodeId(selectedNode.id);
+    } catch (error) {
+      setCompletionError(error instanceof Error ? error.message : "回滚节点失败");
+    } finally {
+      setIsRollingBack(false);
+    }
   };
 
-  const handlePlannedCompletionChange = (plannedCompletion: string | undefined) => {
+  const updateNodeMetadata = async (patch: { owner?: string[] | null; plannedStart?: string | null; plannedCompletion?: string | null; sop?: string }) => {
     if (!selectedNode) return;
-
-    setWorkflows((currentWorkflows) =>
-      currentWorkflows.map((workflow) =>
-        workflow.id !== selectedProductId
-          ? workflow
-          : {
-              ...workflow,
-              nodes: workflow.nodes.map((node) =>
-                node.id === selectedNode.id ? { ...node, plannedCompletion } : node,
-              ),
-            },
-      ),
-    );
+    setIsSavingNodeMetadata(true);
+    setNodeMetadataError(null);
+    try {
+      const response = await fetch("/api/workflow-node-metadata", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workflowId: selectedProductId,
+          nodeId: selectedNode.id,
+          expectedVersion: workflowVersions[selectedProductId],
+          patch,
+        }),
+      });
+      const payload = await response.json().catch(() => ({})) as { workflow?: ProductWorkflow; workflowVersion?: number; error?: string };
+      if (!response.ok || !payload.workflow || payload.workflowVersion === undefined) throw new Error(payload.error ?? "更新节点信息失败");
+      setWorkflows((currentWorkflows) => currentWorkflows.map((workflow) =>
+        workflow.id === payload.workflow!.id ? payload.workflow! : workflow,
+      ));
+      setWorkflowVersions((currentVersions) => ({ ...currentVersions, [selectedProductId]: payload.workflowVersion! }));
+    } catch (error) {
+      setNodeMetadataError(error instanceof Error ? error.message : "更新节点信息失败");
+    } finally {
+      setIsSavingNodeMetadata(false);
+    }
   };
 
-  const handlePlannedStartChange = (plannedStart: string | undefined) => {
-    if (!selectedNode) return;
+  const handleOwnerChange = async (owner: string[] | undefined) => {
+    await updateNodeMetadata({ owner: owner ?? null });
+  };
 
-    setWorkflows((currentWorkflows) =>
-      currentWorkflows.map((workflow) =>
-        workflow.id !== selectedProductId
-          ? workflow
-          : {
-              ...workflow,
-              nodes: workflow.nodes.map((node) =>
-                node.id === selectedNode.id ? { ...node, plannedStart } : node,
-              ),
-            },
-      ),
-    );
+  const handleScheduleChange = async (plannedStart: string | undefined, plannedCompletion: string | undefined) => {
+    await updateNodeMetadata({ plannedStart: plannedStart ?? null, plannedCompletion: plannedCompletion ?? null });
+  };
+
+  const handleSopChange = async (sop: string) => {
+    await updateNodeMetadata({ sop });
   };
 
   const handleCopyLink = async () => {
@@ -176,11 +210,18 @@ export default function App() {
 
             <NodeWorkspace
               node={selectedNode}
+              workflowId={selectedProduct.id}
               spuId={selectedProduct.spu}
               onComplete={handleCompleteNode}
+              isCompleting={isCompleting}
+              onRollback={handleRollbackNode}
+              isRollingBack={isRollingBack}
+              completionError={completionError}
+              isSavingNodeMetadata={isSavingNodeMetadata}
+              nodeMetadataError={nodeMetadataError}
               onOwnerChange={handleOwnerChange}
-              onPlannedStartChange={handlePlannedStartChange}
-              onPlannedCompletionChange={handlePlannedCompletionChange}
+              onScheduleChange={handleScheduleChange}
+              onSopChange={handleSopChange}
             />
           </div>
         ) : <WorkspaceDashboard section={activeSection} workflows={workflows} />}

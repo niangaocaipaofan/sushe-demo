@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { proposeSchemaMappings, proposeValueMappings } from "../services/data-sync-agent";
+import { executeDataSync, proposeSchemaMappings, proposeValueMappings } from "../services/data-sync-agent";
 import { localDataSyncAdapter } from "../services/local-data-sync-adapter";
 import type { DifferenceResolution, LocalSyncTask, PlatformId, SchemaMappings, SyncContent, SyncDifference, SyncPlatform, SyncSchemaField, SyncSourceId, UploadedSyncSource } from "../types/data-sync";
 
@@ -102,10 +102,7 @@ export function useDataSyncWorkflow(spuId: string) {
       void proposeSchemaMappings({
         sourceId: sourceKey,
         targetId: task.targetId,
-        sourceSchema,
-        targetSchema,
         sourceContent,
-        targetContent: localDataSyncAdapter.getContent(task.targetId, spuId),
       }).then((suggestions) => {
         setTasks((current) => current.map((candidate) => {
           const candidateSourceKey: SyncSourceId | null = candidate.uploadedSource ? "uploaded-file" : candidate.sourceId;
@@ -247,7 +244,15 @@ export function useDataSyncWorkflow(spuId: string) {
       const results = await Promise.all(taskViews.map(async (task) => {
         if (!task.sourceKey || !task.targetId || !task.sourceContent) throw new Error("同步任务缺少来源或目标平台");
         const resolutions = Object.fromEntries(task.differences.map((difference) => [difference.id, difference.result === "skipped" ? "skip" : task.differenceResolutions[difference.id]])) as Record<string, DifferenceResolution>;
-        const result = await localDataSyncAdapter.createTask(spuId, task.sourceKey, [task.targetId], resolutions, task.selectedSchemaMappings, task.selectedMappingIds, task.uploadedSource ? task.sourceContent : undefined);
+        const result = await executeDataSync({
+          spuId,
+          sourceId: task.sourceKey,
+          targetId: task.targetId,
+          resolutions,
+          schemaMappings: task.selectedSchemaMappings,
+          selectedMappingIds: task.selectedMappingIds,
+          ...(task.uploadedSource ? { sourceContent: task.sourceContent } : {}),
+        });
         return [task.id, result] as const;
       }));
       setTaskResults(Object.fromEntries(results));

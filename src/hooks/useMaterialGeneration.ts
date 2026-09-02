@@ -1,165 +1,119 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { callImageGenerationLLM } from "../services/image-generation";
-import { callOrchestratorLLM } from "../services/orchestrator";
-import { callReviewerLLM } from "../services/reviewer";
 import type {
-  GenerationTask,
-  ImageGenerationModel,
+  CreateMaterialGenerationJobInput,
+  MaterialGenerationJob,
+  MaterialGenerationJobSummary,
   MaterialWorkflowStatus,
-  OrchestratorInput,
-  OrchestratorPlan,
 } from "../types/material-generation";
-import { appendReviewFeedback } from "../utils/prompt";
 
-export const MAX_REVIEW_FAILURES = 2;
-
-type TaskPatch = Partial<GenerationTask> | ((task: GenerationTask) => Partial<GenerationTask>);
-
-function selectTaskReferences(input: OrchestratorInput, task: GenerationTask) {
-  const referenceNames = new Set(task.references ?? []);
-  return input.referenceMaterials.filter((reference) => referenceNames.has(reference.name));
+async function readResponse<T>(response: Response): Promise<T> {
+  const payload = await response.json().catch(() => null) as T | { error?: string } | null;
+  const errorPayload = payload && typeof payload === "object" ? payload as { error?: string } : null;
+  if (!response.ok) throw new Error(errorPayload?.error || "物料生成服务暂时不可用");
+  return payload as T;
 }
 
-export function useMaterialGeneration() {
-  const [workflowStatus, setWorkflowStatus] = useState<MaterialWorkflowStatus>("idle");
-  const [plan, setPlan] = useState<OrchestratorPlan | null>(null);
-  const [tasks, setTasks] = useState<GenerationTask[]>([]);
+export function useMaterialGeneration(workflowId: string, nodeId: string) {
+  const [currentJob, setCurrentJob] = useState<MaterialGenerationJob | null>(null);
+  const [history, setHistory] = useState<MaterialGenerationJobSummary[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSelectingJobId, setIsSelectingJobId] = useState<string>();
   const [errorMessage, setErrorMessage] = useState<string>();
-  const runIdRef = useRef(0);
 
-  useEffect(() => () => { runIdRef.current += 1; }, []);
-
-  const updateTask = useCallback((taskId: string, patch: TaskPatch, runId: number) => {
-    if (runIdRef.current !== runId) return;
-    setTasks((currentTasks) => currentTasks.map((task) => {
-      if (task.taskId !== taskId) return task;
-      const nextPatch = typeof patch === "function" ? patch(task) : patch;
-      return { ...task, ...nextPatch };
-    }));
-  }, []);
-
-  const runGenerationTask = useCallback(async (
-    initialTask: GenerationTask,
-    input: OrchestratorInput & { imageModel: ImageGenerationModel },
-    runId: number,
-  ) => {
-    let currentTask = { ...initialTask };
-    let prompt = currentTask.instruction;
-
+  const loadHistory = useCallback(async (showLoading = false) => {
+    if (showLoading) setIsLoadingHistory(true);
     try {
-      while (currentTask.reviewFailureCount < MAX_REVIEW_FAILURES && runIdRef.current === runId) {
-        const nextAttempt = currentTask.attempt + 1;
-        updateTask(currentTask.taskId, {
-          status: currentTask.attempt === 0 ? "generating" : "retrying",
-          attempt: nextAttempt,
-        }, runId);
-
-        const generationResult = await callImageGenerationLLM({
-          ...input,
-          // Keep global product facts, but scope visual references to this task.
-          // An omitted references list means no reference image is sent.
-          referenceMaterials: selectTaskReferences(input, currentTask),
-          task: currentTask,
-          prompt,
-          attempt: nextAttempt,
-          imageModel: input.imageModel,
-        });
-        if (runIdRef.current !== runId) return;
-
-        const nextCost = Number(((currentTask.cost ?? 0) + (generationResult.cost ?? 0)).toFixed(2));
-        currentTask = {
-          ...currentTask,
-          status: "reviewing",
-          attempt: nextAttempt,
-          imageUrl: generationResult.imageUrl,
-          cost: nextCost,
-        };
-        updateTask(currentTask.taskId, currentTask, runId);
-
-        const review = await callReviewerLLM({
-          productFacts: input.productFacts,
-          generationRequirements: input.generationRequirements,
-          task: currentTask,
-          imageUrl: generationResult.imageUrl,
-          qaChecklist: currentTask.qaChecklist,
-          attempt: nextAttempt,
-        });
-        if (runIdRef.current !== runId) return;
-
-        if (review.pass) {
-          updateTask(currentTask.taskId, {
-            status: "completed",
-            reviewScore: review.score,
-            reviewFeedback: review.feedback,
-          }, runId);
-          return;
-        }
-
-        const reviewFailureCount = currentTask.reviewFailureCount + 1;
-        currentTask = {
-          ...currentTask,
-          reviewFailureCount,
-          reviewScore: review.score,
-          reviewFeedback: review.feedback,
-        };
-
-        if (reviewFailureCount >= MAX_REVIEW_FAILURES) {
-          updateTask(currentTask.taskId, {
-            status: "failed",
-            reviewFailureCount,
-            reviewScore: review.score,
-            reviewFeedback: review.feedback,
-            errorMessage: review.feedback || "连续两次未通过质检",
-          }, runId);
-          return;
-        }
-
-        prompt = appendReviewFeedback(currentTask.instruction, review.feedback);
-        updateTask(currentTask.taskId, { ...currentTask, status: "retrying" }, runId);
-      }
+      const response = await fetch(`/api/material-generation/tasks?workflowId=${encodeURIComponent(workflowId)}`);
+      const payload = await readResponse<{ tasks: MaterialGenerationJobSummary[] }>(response);
+      setHistory((current) => JSON.stringify(current) === JSON.stringify(payload.tasks) ? current : payload.tasks);
+      return payload.tasks;
     } catch (error) {
-      updateTask(currentTask.taskId, {
-        status: "failed",
-        errorMessage: error instanceof Error ? error.message : "生成服务暂时不可用",
-      }, runId);
-      throw error;
+      setErrorMessage(error instanceof Error ? error.message : "无法加载历史任务");
+      return [];
+    } finally {
+      setIsLoadingHistory(false);
     }
-  }, [updateTask]);
+  }, [workflowId]);
 
-  const handleStartGeneration = useCallback(async (input: OrchestratorInput & { imageModel: ImageGenerationModel }) => {
-    const runId = runIdRef.current + 1;
-    runIdRef.current = runId;
-    setWorkflowStatus("planning");
-    setPlan(null);
-    setTasks([]);
+  const selectJob = useCallback(async (taskId: string, showLoading = true) => {
+    if (showLoading) setIsSelectingJobId(taskId);
+    try {
+      setErrorMessage(undefined);
+      const response = await fetch(`/api/material-generation/tasks/${encodeURIComponent(taskId)}?workflowId=${encodeURIComponent(workflowId)}`);
+      const payload = await readResponse<{ task: MaterialGenerationJob }>(response);
+      setCurrentJob(payload.task);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "无法加载物料生成任务");
+    } finally {
+      if (showLoading) setIsSelectingJobId((current) => current === taskId ? undefined : current);
+    }
+  }, [workflowId]);
+
+  useEffect(() => {
+    setCurrentJob(null);
+    setHistory([]);
+    setIsLoadingHistory(true);
     setErrorMessage(undefined);
+    void loadHistory();
+  }, [loadHistory]);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => { void loadHistory(); }, 3_000);
+    return () => window.clearInterval(timer);
+  }, [loadHistory]);
+
+  useEffect(() => {
+    if (!currentJob || !["queued", "planning", "running"].includes(currentJob.status)) return undefined;
+    const timer = window.setInterval(() => {
+      void selectJob(currentJob.id, false);
+      void loadHistory();
+    }, 1_500);
+    return () => window.clearInterval(timer);
+  }, [currentJob, loadHistory, selectJob]);
+
+  const handleStartGeneration = useCallback(async (
+    input: Omit<CreateMaterialGenerationJobInput, "workflowId" | "nodeId" | "spuId" | "source">,
+  ) => {
     try {
-      const nextPlan = await callOrchestratorLLM(input);
-      if (runIdRef.current !== runId) return;
-
-      const nextTasks = nextPlan.categories.flatMap((category) => category.tasks.map((task) => ({
-        ...task,
-        categoryKey: category.categoryKey,
-        categoryLabel: category.categoryLabel,
-        status: "planned" as const,
-        attempt: 0,
-        reviewFailureCount: 0,
-        cost: 0,
-      })));
-      setPlan(nextPlan);
-      setTasks(nextTasks);
-      setWorkflowStatus("running");
-
-      await Promise.allSettled(nextTasks.map((task) => runGenerationTask(task, input, runId)));
-      if (runIdRef.current === runId) setWorkflowStatus("completed");
+      setIsSubmitting(true);
+      setErrorMessage(undefined);
+      const response = await fetch("/api/material-generation/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...input, workflowId, nodeId }),
+      });
+      const payload = await readResponse<{ task: MaterialGenerationJob }>(response);
+      setCurrentJob(payload.task);
+      await loadHistory();
+      return payload.task;
     } catch (error) {
-      if (runIdRef.current !== runId) return;
-      setWorkflowStatus("failed");
-      setErrorMessage(error instanceof Error ? error.message : "规划服务暂时不可用");
+      setErrorMessage(error instanceof Error ? error.message : "无法创建物料生成任务");
+      return undefined;
+    } finally {
+      setIsSubmitting(false);
     }
-  }, [runGenerationTask]);
+  }, [loadHistory, nodeId, workflowId]);
 
-  return { workflowStatus, plan, tasks, errorMessage, handleStartGeneration };
+  const workflowStatus = useMemo<MaterialWorkflowStatus>(() => {
+    if (!currentJob) return "idle";
+    if (currentJob.status === "queued") return "planning";
+    return currentJob.status;
+  }, [currentJob]);
+
+  return {
+    workflowStatus,
+    plan: currentJob?.plan ?? null,
+    tasks: currentJob?.tasks ?? [],
+    errorMessage: currentJob?.errorMessage ?? errorMessage,
+    currentJob,
+    history,
+    isLoadingHistory,
+    isSubmitting,
+    isSelectingJobId,
+    handleStartGeneration,
+    selectJob,
+    loadHistory,
+  };
 }
