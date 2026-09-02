@@ -1,13 +1,16 @@
+import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { extname } from "node:path";
 import { defaultMaterialRequirements } from "../src/data/material-generation-presets.ts";
 import type {
   GenerationTask,
+  GenerationAttempt,
   ImageGenerationModel,
   MaterialGenerationJob,
   MaterialGenerationSource,
   ProductFact,
   ReferenceMaterial,
+  RetryMaterialGenerationTaskInput,
 } from "../src/types/material-generation.ts";
 import { persistDataUrlMaterialAsset, resolveMaterialAssetPath } from "./material-asset-store.ts";
 import {
@@ -34,6 +37,12 @@ export type StartMaterialGenerationInput = {
   productFacts?: ProductFact[];
   referenceMaterials?: ReferenceMaterial[];
   idempotencyKey?: string;
+};
+
+export type RetryMaterialGenerationInput = RetryMaterialGenerationTaskInput & {
+  workflowId: string;
+  jobId: string;
+  taskId: string;
 };
 
 function selectTaskReferences(references: ReferenceMaterial[], task: GenerationTask) {
@@ -151,6 +160,27 @@ export function createMaterialGenerationService(
   const smartElderlyCapabilities = options.smartElderlyCapabilities ?? [];
   const imageConcurrency = Math.max(1, Math.floor(options.imageConcurrency ?? 10));
   const withImageConcurrency = createConcurrencyLimiter(imageConcurrency);
+  const getEffectivePrompt = (task: GenerationTask, imageModel: ImageGenerationModel) => {
+    if (imageModel !== "smart-elderly") return task.instruction;
+    const capability = smartElderlyCapabilities.find((item) => item.id === task.capabilityId);
+    if (!capability) return task.instruction;
+    return capability.textInputs
+      .map((input) => input.source === "fixed" ? input.value : task.parameters?.[input.key])
+      .filter((value): value is string => Boolean(value?.trim()))
+      .join("\n") || task.instruction;
+  };
+  const createAttempt = (
+    prompt: string,
+    referenceMaterials: ReferenceMaterial[],
+    inputBindings?: Record<string, string>,
+  ): GenerationAttempt => ({
+    id: randomUUID(),
+    prompt,
+    referenceMaterials: structuredClone(referenceMaterials),
+    ...(inputBindings ? { inputBindings: structuredClone(inputBindings) } : {}),
+    status: "generating",
+    createdAt: new Date().toISOString(),
+  });
   async function updateTask(jobId: string, taskId: string, patch: Partial<GenerationTask>) {
     return updateMaterialGenerationJob(jobId, (job) => {
       job.tasks = job.tasks.map((task) => task.taskId === taskId ? { ...task, ...patch } : task);
@@ -165,20 +195,99 @@ export function createMaterialGenerationService(
   ) {
     let currentTask = { ...initialTask };
     try {
-      currentTask = { ...currentTask, status: "generating" };
+      const references = selectTaskReferences(job.referenceMaterials, currentTask);
+      const prompt = currentTask.effectivePrompt ?? getEffectivePrompt(currentTask, job.imageModel);
+      const attempt = createAttempt(prompt, references, currentTask.inputBindings);
+      currentTask = { ...currentTask, status: "generating", attempts: [...(currentTask.attempts ?? []), attempt] };
       await updateTask(job.id, currentTask.taskId, currentTask);
       const generation = await runtime.generate({
         productFacts: job.productFacts,
         generationRequirements: job.generationRequirements,
-        referenceMaterials: selectTaskReferences(job.referenceMaterials, currentTask),
+        referenceMaterials: references,
         task: currentTask,
         prompt: currentTask.instruction,
         imageModel: job.imageModel,
       }, executionContext);
       const cost = Number(((currentTask.cost ?? 0) + (generation.cost ?? 0)).toFixed(2));
-      await updateTask(job.id, currentTask.taskId, { status: "completed", imageUrl: generation.imageUrl, cost });
+      const completedAt = new Date().toISOString();
+      await updateTask(job.id, currentTask.taskId, {
+        status: "completed",
+        imageUrl: generation.imageUrl,
+        cost,
+        attempts: currentTask.attempts?.map((item) => item.id === attempt.id
+          ? { ...item, status: "completed", imageUrl: generation.imageUrl, cost: generation.cost, completedAt }
+          : item),
+      });
     } catch (error) {
-      await updateTask(job.id, currentTask.taskId, { status: "failed", errorMessage: error instanceof Error ? error.message : "生成服务暂时不可用" });
+      const errorMessage = error instanceof Error ? error.message : "生成服务暂时不可用";
+      const completedAt = new Date().toISOString();
+      await updateTask(job.id, currentTask.taskId, {
+        status: "failed",
+        errorMessage,
+        attempts: currentTask.attempts?.map((item) => item.status === "generating"
+          ? { ...item, status: "failed", errorMessage, completedAt }
+          : item),
+      });
+    }
+  }
+
+  function createSmartElderlyRetryOverrides(task: GenerationTask, prompt: string) {
+    const capability = smartElderlyCapabilities.find((item) => item.id === task.capabilityId);
+    if (!capability) throw new Error(`智慧老人不支持任务能力：${task.capabilityId ?? "未指定"}`);
+    const targetInput = capability.textInputs.find((item) => item.source === "fixed") ?? capability.textInputs[0];
+    return Object.fromEntries(capability.textInputs.map((input) => [input.key, input.key === targetInput?.key ? prompt : ""]));
+  }
+
+  async function runRetry(
+    job: MaterialGenerationJob,
+    task: GenerationTask,
+    attempt: GenerationAttempt,
+  ) {
+    try {
+      const generation = await runtime.generate({
+        productFacts: job.productFacts,
+        generationRequirements: job.generationRequirements,
+        referenceMaterials: attempt.referenceMaterials,
+        task: { ...task, inputBindings: attempt.inputBindings ?? task.inputBindings },
+        prompt: attempt.prompt,
+        imageModel: job.imageModel,
+        ...(job.imageModel === "smart-elderly"
+          ? { textInputOverrides: createSmartElderlyRetryOverrides(task, attempt.prompt) }
+          : {}),
+      }, runtime.createExecutionContext());
+      await updateMaterialGenerationJob(job.id, (current) => {
+        const currentTask = current.tasks.find((item) => item.taskId === task.taskId);
+        if (!currentTask) return;
+        const completedAt = new Date().toISOString();
+        currentTask.status = "completed";
+        currentTask.effectivePrompt = attempt.prompt;
+        currentTask.imageUrl = generation.imageUrl;
+        currentTask.errorMessage = undefined;
+        currentTask.cost = Number(((currentTask.cost ?? 0) + (generation.cost ?? 0)).toFixed(2));
+        currentTask.attempts = currentTask.attempts?.map((item) => item.id === attempt.id
+          ? { ...item, status: "completed", imageUrl: generation.imageUrl, cost: generation.cost, completedAt }
+          : item);
+        current.previewImageUrl = generation.imageUrl;
+        const failedCount = current.tasks.filter((item) => item.status === "failed").length;
+        current.status = failedCount ? "failed" : "completed";
+        current.errorMessage = failedCount ? `${failedCount} / ${current.tasks.length} 个图片任务生成失败` : undefined;
+        current.completedAt = completedAt;
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "生成服务暂时不可用";
+      await updateMaterialGenerationJob(job.id, (current) => {
+        const currentTask = current.tasks.find((item) => item.taskId === task.taskId);
+        if (!currentTask) return;
+        const completedAt = new Date().toISOString();
+        currentTask.status = "failed";
+        currentTask.errorMessage = errorMessage;
+        currentTask.attempts = currentTask.attempts?.map((item) => item.id === attempt.id
+          ? { ...item, status: "failed", errorMessage, completedAt }
+          : item);
+        current.status = "failed";
+        current.errorMessage = `${current.tasks.filter((item) => item.status === "failed").length} / ${current.tasks.length} 个图片任务生成失败`;
+        current.completedAt = completedAt;
+      });
     }
   }
 
@@ -204,7 +313,7 @@ export function createMaterialGenerationService(
         categoryLabel: category.categoryLabel,
         status: "planned" as const,
         cost: 0,
-      })));
+      }))).map((task) => ({ ...task, effectivePrompt: getEffectivePrompt(task, job.imageModel) }));
       job = await updateMaterialGenerationJob(jobId, (current) => {
         current.plan = plan;
         current.tasks = tasks;
@@ -268,7 +377,72 @@ export function createMaterialGenerationService(
     return created.job;
   }
 
-  return { start, get: getMaterialGenerationJob, list: listMaterialGenerationJobs };
+  async function retry(input: RetryMaterialGenerationInput) {
+    const prompt = input.prompt.trim();
+    if (!prompt) throw new Error("重试 Prompt 不能为空");
+    const job = await getMaterialGenerationJob(input.jobId, input.workflowId);
+    if (!job) throw new Error(`未找到物料生成任务：${input.jobId}`);
+    const task = job.tasks.find((item) => item.taskId === input.taskId);
+    if (!task) throw new Error(`任务中未找到图片：${input.taskId}`);
+    if (task.status === "generating") throw new Error("该图片正在生成，请等待完成后再重试");
+
+    const previousReferences = task.attempts?.at(-1)?.referenceMaterials
+      ?? selectTaskReferences(job.referenceMaterials, task);
+    const references = await resolveReferenceMaterials(
+      input.referenceMaterials.length ? input.referenceMaterials : previousReferences,
+    );
+    if (references.length > 10) throw new Error("单张图片最多使用 10 张参考素材");
+    const referenceNames = new Set(references.map((reference) => reference.name));
+    if (referenceNames.size !== references.length) throw new Error("参考素材文件名不能重复");
+    if (references.some((reference) => !reference.source?.value || !reference.type.startsWith("image/"))) {
+      throw new Error("重试参考素材必须是可用图片");
+    }
+
+    let inputBindings: Record<string, string> | undefined;
+    if (job.imageModel === "smart-elderly") {
+      const capability = smartElderlyCapabilities.find((item) => item.id === task.capabilityId);
+      if (!capability) throw new Error(`智慧老人不支持任务能力：${task.capabilityId ?? "未指定"}`);
+      inputBindings = input.inputBindings ?? task.attempts?.at(-1)?.inputBindings ?? task.inputBindings;
+      const expectedKeys = capability.imageInputs.map((item) => item.key).sort();
+      const actualKeys = Object.keys(inputBindings ?? {}).sort();
+      if (JSON.stringify(expectedKeys) !== JSON.stringify(actualKeys)) {
+        throw new Error(`${capability.name} 的参考素材绑定不完整：需要 ${expectedKeys.join(", ")}`);
+      }
+      for (const [key, name] of Object.entries(inputBindings ?? {})) {
+        if (!referenceNames.has(name)) throw new Error(`${key} 绑定的参考素材不存在：${name}`);
+      }
+    }
+
+    const attempt = createAttempt(prompt, references, inputBindings);
+    const updatedJob = await updateMaterialGenerationJob(job.id, (current) => {
+      const currentTask = current.tasks.find((item) => item.taskId === task.taskId);
+      if (!currentTask) throw new Error(`任务中未找到图片：${task.taskId}`);
+      if (currentTask.status === "generating") throw new Error("该图片正在生成，请等待完成后再重试");
+      currentTask.status = "generating";
+      currentTask.effectivePrompt = prompt;
+      currentTask.errorMessage = undefined;
+      currentTask.attempts = [...(currentTask.attempts ?? []), attempt];
+      current.status = "running";
+      current.errorMessage = undefined;
+      current.startedAt = attempt.createdAt;
+      current.completedAt = undefined;
+    });
+    const retryTask = updatedJob.tasks.find((item) => item.taskId === task.taskId)!;
+    void withImageConcurrency(() => runRetry(updatedJob, retryTask, attempt));
+    return updatedJob;
+  }
+
+  async function get(jobId: string, workflowId?: string) {
+    const job = await getMaterialGenerationJob(jobId, workflowId);
+    if (!job) return undefined;
+    job.tasks = job.tasks.map((task) => ({
+      ...task,
+      effectivePrompt: task.attempts?.at(-1)?.prompt ?? task.effectivePrompt ?? getEffectivePrompt(task, job.imageModel),
+    }));
+    return job;
+  }
+
+  return { start, retry, get, list: listMaterialGenerationJobs };
 }
 
 export function createMaterialGenerationServiceFromEnv(env: Record<string, string | undefined>) {

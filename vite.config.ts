@@ -12,7 +12,7 @@ import { listWorkflowEvents, produceWorkflowEvent, type WorkflowEventType } from
 import { completeNodeAndProduceWorkflowEvent, resetWorkflowToNode, updateWorkflowNodeMetadata } from "./server/workflow-commands.ts";
 import { listStoredWorkflowVersions, listStoredWorkflows } from "./server/workflow-store.ts";
 import type { DifferenceResolution, PlatformId, SchemaMappings, SyncContent, SyncDifference, SyncSourceId } from "./src/types/data-sync.ts";
-import type { ProductFact, ReferenceMaterial } from "./src/types/material-generation.ts";
+import type { ProductFact, ReferenceMaterial, RetryMaterialGenerationTaskInput } from "./src/types/material-generation.ts";
 
 type DataSyncAgentRequest = {
   stage?: unknown;
@@ -158,8 +158,27 @@ function materialGenerationApiPlugin(
       });
       server.middlewares.use("/api/material-generation/tasks", async (request, response) => {
         const url = new URL(request.url ?? "/", "http://localhost");
-        const taskId = url.pathname.split("/").filter(Boolean)[0];
+        const pathParts = url.pathname.split("/").filter(Boolean);
+        const taskId = pathParts[0];
         try {
+          if (request.method === "POST" && taskId && pathParts[1] === "images" && pathParts[2] && pathParts[3] === "retries") {
+            const input = await readJsonBody<Partial<RetryMaterialGenerationTaskInput> & { workflowId?: unknown }>(request, maxRequestBytes);
+            if (typeof input.workflowId !== "string" || !input.workflowId.trim()
+              || typeof input.prompt !== "string" || !input.prompt.trim()
+              || !Array.isArray(input.referenceMaterials)
+              || (input.inputBindings !== undefined && (!input.inputBindings || typeof input.inputBindings !== "object" || Array.isArray(input.inputBindings)))) {
+              return sendJson(response, 400, { error: "单图重试输入格式不正确" });
+            }
+            const task = await materialService.retry({
+              workflowId: input.workflowId,
+              jobId: taskId,
+              taskId: pathParts[2],
+              prompt: input.prompt,
+              referenceMaterials: input.referenceMaterials,
+              inputBindings: input.inputBindings as Record<string, string> | undefined,
+            });
+            return sendJson(response, 202, { task });
+          }
           if (request.method === "GET" && taskId) {
             const workflowId = url.searchParams.get("workflowId");
             if (!workflowId) return sendJson(response, 400, { error: "缺少 workflowId" });

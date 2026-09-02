@@ -18,11 +18,12 @@ import { createPortal } from "react-dom";
 import type { WorkflowNode, WorkspaceTabIcon } from "../data/workflows";
 import { useMaterialGeneration } from "../hooks/useMaterialGeneration";
 import { getWanzhenProductFacts } from "../data/material-product-facts";
-import type { ImageGenerationModel } from "../types/material-generation";
+import type { GenerationTask, ImageGenerationModel } from "../types/material-generation";
 import { AgentTabIcon } from "./AgentTabIcon";
 import { DataSyncWorkspace } from "./DataSyncWorkspace";
 import { MaterialCategorySection } from "./MaterialCategorySection";
 import { MaterialGenerationHistory } from "./MaterialGenerationHistory";
+import { MaterialRetryDialog } from "./MaterialRetryDialog";
 import { MaterialGenerationStatus } from "./MaterialGenerationStatus";
 import { workspaceTabIconPaths } from "./WorkspaceTabIcon";
 
@@ -236,19 +237,6 @@ function formatFileSize(size: number) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function recognizeReferenceMaterial(fileName: string) {
-  const tags = [
-    ["款式", "款式图"],
-    ["模特", "模特底图"],
-    ["数字人脸", "数字人脸"],
-    ["细节", "细节图"],
-    ["搭配", "搭配图"],
-  ].find(([keyword]) => fileName.includes(keyword));
-  const color = ["白色", "黑色", "正面", "背面", "侧面", "领口"].find((keyword) => fileName.includes(keyword));
-
-  return [tags?.[1] ?? "待识别", color].filter(Boolean).join(" · ");
-}
-
 interface ReferenceFileTreeNode {
   name: string;
   path: string;
@@ -438,6 +426,7 @@ function MaterialGenerationWorkspace({ workflowId, nodeId, spuId }: { workflowId
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isOriginalPreviewOpen, setIsOriginalPreviewOpen] = useState(false);
   const [generatedPreview, setGeneratedPreview] = useState<{ imageUrl: string; imageLabel: string } | null>(null);
+  const [retryingTask, setRetryingTask] = useState<GenerationTask | null>(null);
   const [expandedFolderPaths, setExpandedFolderPaths] = useState<Set<string>>(new Set());
   const [includeProductFacts, setIncludeProductFacts] = useState(true);
   const [materialRequirements, setMaterialRequirements] = useState(defaultMaterialRequirements);
@@ -457,6 +446,7 @@ function MaterialGenerationWorkspace({ workflowId, nodeId, spuId }: { workflowId
     isSubmitting,
     isSelectingJobId,
     handleStartGeneration,
+    retryImage,
     selectJob,
     loadHistory,
   } = useMaterialGeneration(workflowId, nodeId);
@@ -547,7 +537,6 @@ function MaterialGenerationWorkspace({ workflowId, nodeId, spuId }: { workflowId
           name: getReferenceFilePath(file),
           type: file.type || "application/octet-stream",
           size: file.size,
-          recognizedRole: recognizeReferenceMaterial(file.name).split(" · ")[0],
           // Archives remain planner metadata; images are uploaded separately so
           // the task JSON never contains a second Base64 copy of the full library.
           source: file.type.startsWith("image/")
@@ -664,7 +653,7 @@ function MaterialGenerationWorkspace({ workflowId, nodeId, spuId }: { workflowId
               </div>
             </div>
 
-            <section className="material-uploaded-files" aria-label="已上传文件内容识别展示">
+            <section className="material-uploaded-files" aria-label="已上传文件列表">
               <div className="material-uploaded-files-header">
                 <span>已上传文件</span>
                 <small>{referenceFiles.length}</small>
@@ -695,7 +684,7 @@ function MaterialGenerationWorkspace({ workflowId, nodeId, spuId }: { workflowId
                   ) : null}
                 </div>
               ) : (
-                <div className="material-files-empty">上传后将在此处展示文件名称与用途识别结果</div>
+                <div className="material-files-empty">上传后将在此处展示文件列表</div>
               )}
             </section>
           </div>
@@ -821,6 +810,7 @@ function MaterialGenerationWorkspace({ workflowId, nodeId, spuId }: { workflowId
                 label={category.categoryLabel}
                 tasks={tasks.filter((task) => task.categoryKey === category.categoryKey)}
                 onPreview={(imageUrl, imageLabel) => setGeneratedPreview({ imageUrl, imageLabel })}
+                onRetry={setRetryingTask}
               />
             ))}
           </div>
@@ -855,6 +845,15 @@ function MaterialGenerationWorkspace({ workflowId, nodeId, spuId }: { workflowId
           </div>
         </div>,
         document.body,
+      )}
+      {retryingTask && currentJob && (
+        <MaterialRetryDialog
+          task={retryingTask}
+          imageModel={currentJob.imageModel}
+          jobReferences={currentJob.referenceMaterials}
+          onClose={() => setRetryingTask(null)}
+          onRetry={(input) => retryImage(retryingTask.taskId, input)}
+        />
       )}
     </div>
   );

@@ -113,7 +113,6 @@ server.registerTool(
         name: z.string().min(1),
         type: z.string().min(1).default("image/*"),
         size: z.number().nonnegative().default(0),
-        recognizedRole: z.string().optional(),
         source: z.object({
           kind: z.enum(["data_url", "url", "file_id", "file_path"]),
           value: z.string().min(1),

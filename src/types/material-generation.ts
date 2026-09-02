@@ -6,7 +6,6 @@ export type ReferenceMaterial = {
   name: string;
   type: string;
   size: number;
-  recognizedRole?: string;
   /** A provider-ready image input. Archive files intentionally have no source. */
   source?: {
     kind: "data_url" | "url" | "file_id" | "file_path" | "asset_id";
@@ -68,6 +67,19 @@ export type TaskStatus =
   | "completed"
   | "failed";
 
+export type GenerationAttempt = {
+  id: string;
+  prompt: string;
+  referenceMaterials: ReferenceMaterial[];
+  inputBindings?: Record<string, string>;
+  status: TaskStatus;
+  imageUrl?: string;
+  errorMessage?: string;
+  cost?: number;
+  createdAt: string;
+  completedAt?: string;
+};
+
 export type GenerationTask = OrchestratorTask & {
   categoryKey: string;
   categoryLabel: string;
@@ -75,6 +87,8 @@ export type GenerationTask = OrchestratorTask & {
   imageUrl?: string;
   errorMessage?: string;
   cost?: number;
+  effectivePrompt?: string;
+  attempts?: GenerationAttempt[];
 };
 
 export type ImageGenerationInput = {
@@ -84,6 +98,7 @@ export type ImageGenerationInput = {
   task: GenerationTask;
   prompt: string;
   imageModel: ImageGenerationModel;
+  textInputOverrides?: Record<string, string>;
 };
 
 export type ImageGenerationResult = {
@@ -135,4 +150,10 @@ export type CreateMaterialGenerationJobInput = OrchestratorInput & {
   source: MaterialGenerationSource;
   imageModel: ImageGenerationModel;
   idempotencyKey?: string;
+};
+
+export type RetryMaterialGenerationTaskInput = {
+  prompt: string;
+  referenceMaterials: ReferenceMaterial[];
+  inputBindings?: Record<string, string>;
 };

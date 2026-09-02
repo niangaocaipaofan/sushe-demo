@@ -612,6 +612,8 @@
   .material-image-card-meta small { color: #aaa; font-size: 7px; }
   .material-image-card-status { height: 22px; display: flex; align-items: flex-start; justify-content: space-between; overflow: hidden; color: #888; font-size: 8px; }
   .material-image-card-status > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .material-image-card-status > button { flex: none; padding: 0; border: 0; color: #258c63; background: transparent; cursor: pointer; font: inherit; font-size: 8px; }
+  .material-image-card-status > button:hover { color: #126b49; text-decoration: underline; }
   .material-image-card.is-completed .material-image-card-status, .material-image-card.is-failed .material-image-card-status { color: #888; }
   .material-image-card-status i { width: 18px; height: 14px; display: grid; place-items: center; border: 1px solid rgb(62 207 142 / 40%); border-radius: 3px; color: #159664; background: var(--console-green-soft); font-size: 7px; font-style: normal; font-weight: 650; }
   .material-image-card-preview { position: relative; width: 100%; aspect-ratio: 3 / 4; overflow: hidden; border: 1px solid #e6e6e6; border-radius: 4px; background-color: #f7f7f7; background-image: radial-gradient(#e2e2e2 .6px, transparent .6px); background-size: 12px 12px; }
@@ -622,6 +624,38 @@
   .material-image-skeleton { width: 100% !important; height: 100% !important; border-radius: 0 !important; background: linear-gradient(105deg, #f2f2f2 22%, #fafafa 40%, #f2f2f2 58%) !important; background-size: 240% 100% !important; animation: material-shimmer 1.4s linear infinite; }
   .material-image-failed-mark { width: 28px; height: 28px; position: absolute; inset: 50% auto auto 50%; display: grid; place-items: center; transform: translate(-50%, -50%); border: 1px solid rgb(211 91 84 / 35%); border-radius: 50%; color: #b54b46; background: #fff5f4; font-size: 13px; font-weight: 650; }
   .material-image-card p { margin: 8px 0 0; overflow: hidden; color: #8a8a8a; font-size: 7px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
+
+  .material-retry-overlay { position: fixed; z-index: 1200; inset: 0; padding: 32px; display: grid; place-items: center; background: rgb(20 24 22 / 48%); backdrop-filter: blur(2px); }
+  .material-retry-dialog { width: min(620px, calc(100vw - 48px)); max-height: calc(100vh - 64px); overflow: auto; border: 1px solid #d8d8d8; border-radius: 8px; background: #fff; box-shadow: 0 22px 70px rgb(0 0 0 / 18%); }
+  .material-retry-dialog > header { min-height: 58px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e8e8e8; }
+  .material-retry-dialog > header > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .material-retry-dialog > header strong { color: #333; font-size: 13px; font-weight: 620; }
+  .material-retry-dialog > header small { overflow: hidden; color: #888; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+  .material-retry-dialog > header button { width: 28px; height: 28px; border: 0; border-radius: 4px; color: #777; background: transparent; cursor: pointer; font-size: 20px; line-height: 1; }
+  .material-retry-dialog > header button:hover { background: #f2f2f2; }
+  .material-retry-prompt { padding: 15px 16px 10px; display: flex; flex-direction: column; gap: 7px; color: #4d4d4d; font-size: 10px; font-weight: 600; }
+  .material-retry-prompt textarea { min-height: 150px; padding: 10px; resize: vertical; border: 1px solid #d8d8d8; border-radius: 5px; color: #333; background: #fff; font: inherit; font-size: 11px; font-weight: 400; line-height: 1.65; outline: 0; }
+  .material-retry-prompt textarea:focus { border-color: var(--console-green); box-shadow: 0 0 0 2px rgb(62 207 142 / 10%); }
+  .material-retry-references { padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 7px; }
+  .material-retry-section-title { display: flex; align-items: center; justify-content: space-between; color: #4d4d4d; }
+  .material-retry-section-title span { font-size: 10px; font-weight: 600; }
+  .material-retry-section-title small { color: #999; font-size: 8px; }
+  .material-retry-reference, .material-retry-add-reference { min-height: 45px; padding: 8px 10px; position: relative; display: flex; align-items: center; gap: 12px; border: 1px solid #e3e3e3; border-radius: 5px; color: #555; background: #fafafa; cursor: pointer; }
+  .material-retry-reference > span { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+  .material-retry-reference strong { color: #555; font-size: 9px; font-weight: 600; }
+  .material-retry-reference small, .material-retry-add-reference small { overflow: hidden; color: #888; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+  .material-retry-reference input, .material-retry-add-reference input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .material-retry-reference em { flex: none; color: #258c63; font-size: 9px; font-style: normal; }
+  .material-retry-add-reference { min-height: 38px; justify-content: center; color: #258c63; border-style: dashed; background: #fff; }
+  .material-retry-add-reference span { font-size: 9px; }
+  .material-retry-add-reference small { max-width: 65%; }
+  .material-retry-error { margin: 0 16px 12px; padding: 8px 10px; border-radius: 4px; color: #aa403b; background: #fff2f1; font-size: 9px; line-height: 1.5; }
+  .material-retry-dialog > footer { min-height: 58px; padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid #e8e8e8; background: #fafafa; }
+  .material-retry-dialog > footer > span { color: #999; font-size: 8px; }
+  .material-retry-dialog > footer > div { display: flex; gap: 7px; }
+  .material-retry-dialog > footer button { min-height: 29px; padding: 0 12px; border: 1px solid #d5d5d5; border-radius: 4px; color: #666; background: #fff; cursor: pointer; font: inherit; font-size: 9px; }
+  .material-retry-dialog > footer button.is-primary { border-color: rgb(62 207 142 / 55%); color: #126b49; background: var(--console-green-soft); }
+  .material-retry-dialog > footer button:disabled { opacity: .55; cursor: wait; }
 
   /* Keep the visual-material specialist workspace readable at normal zoom. */
   .material-agent-workspace *, .material-image-stage *, .material-history-panel * { font-size: 10px; }

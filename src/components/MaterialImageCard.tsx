@@ -10,11 +10,13 @@ const statusLabel: Record<GenerationTask["status"], string> = {
 export function MaterialImageCard({
   task,
   onPreview,
+  onRetry,
 }: {
   task: GenerationTask;
   onPreview?: (imageUrl: string, imageLabel: string) => void;
+  onRetry?: (task: GenerationTask) => void;
 }) {
-  const showImage = Boolean(task.imageUrl) && !["planned", "generating"].includes(task.status);
+  const showImage = Boolean(task.imageUrl);
   const statusDetail = task.status === "failed"
     ? task.errorMessage || "生成失败，未返回具体原因"
     : task.status === "completed" ? "已生成" : "等待生成";
@@ -29,6 +31,7 @@ export function MaterialImageCard({
       </div>
       <div className="material-image-card-status">
         <span title={statusDetail}>{statusDetail}</span>
+        {!["planned", "generating"].includes(task.status) && <button type="button" onClick={() => onRetry?.(task)}>重试</button>}
       </div>
       <div className="material-image-card-preview">
         {showImage ? (

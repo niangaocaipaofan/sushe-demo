@@ -136,6 +136,14 @@ async function sourceToBlob(reference: ImageGenerationInput["referenceMaterials"
   throw new Error(`参考素材 ${reference.name} 不支持 ${reference.source?.kind} 格式；请使用图片 URL、Data URL 或本地文件路径`);
 }
 
+async function sourceToProviderImage(reference: ImageGenerationInput["referenceMaterials"][number]) {
+  const source = reference.source?.value;
+  if (!source) throw new Error(`参考素材 ${reference.name} 没有可用的图片内容`);
+  if (reference.source?.kind !== "file_path") return source;
+  const data = await readFile(source);
+  return `data:${reference.type || "application/octet-stream"};base64,${data.toString("base64")}`;
+}
+
 async function runningHubRequest<T>(url: string, apiKey: string, init: RequestInit) {
   const response = await fetch(url, {
     ...init,
@@ -175,9 +183,14 @@ export function createMaterialGenerationRuntime(options: RuntimeOptions) {
 通用规则：
 1. 只规划图片任务，分类、数量、组合方式和类型由用户要求决定；“每个颜色”按商品事实展开；taskId 全局唯一。
 2. 所有被引用的素材名称必须与 referenceMaterials.name 完全一致，不得虚构、缩写或只写 basename。
-3. 根据文件名、目录名、recognizedRole、商品事实和用户要求综合判断素材用途。若无法可靠区分，不能猜测；不为该要求创建任务，并在 clarificationQuestions 中写出用户需要说明的问题。
+3. 根据完整文件名、目录名、商品事实和用户要求综合判断素材用途。文件名中的“换衣测试底图”“换脸测试底图”“模特底图”均可可靠判断为模特底图；角度、景别等描述也应直接采用。只有素材角色确实无法判断且会导致选错图片时，才在 clarificationQuestions 中要求说明。
 4. 没有足够素材或没有能力支持的要求，不得用相似能力凑数；写入 unsupportedRequirements。
 5. 同一批请求可以混合使用多个能力，每张输出都是独立 task。
+6. 用户要求“配套文案”即授权你基于商品事实生成克制、通用且不虚构的电商文案，不得再要求用户提供文案。
+7. 产品信息图默认使用商品事实中已有的品类、颜色、面料、版型、季节和风格；用户未要求时不添加价格、优惠、认证或其他不存在的信息，也不得为此提问。
+8. 未指定的构图、场景、搭配下装、细节部位和裁剪方式，按电商上新最佳实践自行选择。风格已给出时，搭配应与该风格一致。
+9. 同一张参考图默认允许用于多个任务，并可进行不同裁剪、构图、角度或场景变换；除非用户明确禁止，不得为是否复用素材提问。
+10. clarificationQuestions 只用于缺失信息会让任务客观上无法执行或极可能使用错误素材的情况，不能把常规创意决策转交给用户。
 
 当 imageModel 为 smart-elderly 时：
 1. 每个任务必须选择 workflowCapabilities 中语义匹配的 capabilityId。
@@ -248,7 +261,8 @@ export function createMaterialGenerationRuntime(options: RuntimeOptions) {
         ...capability.textInputs.map((definition) => ({
           nodeId: definition.nodeId,
           fieldName: definition.fieldName,
-          fieldValue: definition.source === "fixed" ? definition.value! : input.task.parameters?.[definition.key] ?? "",
+          fieldValue: input.textInputOverrides?.[definition.key]
+            ?? (definition.source === "fixed" ? definition.value! : input.task.parameters?.[definition.key] ?? ""),
           description: definition.apiDescription ?? definition.key,
         })),
       ];
@@ -283,7 +297,7 @@ export function createMaterialGenerationRuntime(options: RuntimeOptions) {
       throw new Error(`RunningHub 图片生成请求超时（${Math.ceil(options.imageApiTimeoutMs / 1000)} 秒）`);
     }
     if (!options.imageApiKey) throw new Error("未配置 IMAGE_API_KEY。请填写 .env.local 后重启服务。");
-    const images = input.referenceMaterials.flatMap((reference) => reference.source?.value ? [reference.source.value] : []).slice(0, 10);
+    const images = await Promise.all(input.referenceMaterials.slice(0, 10).map(sourceToProviderImage));
     const config = imageModelConfigs[input.imageModel];
     const origin = options.imageApiBaseUrl ? new URL(options.imageApiBaseUrl).origin : "https://maas.haoee.com";
     const requestBody: Record<string, unknown> = input.imageModel === "gpt2"

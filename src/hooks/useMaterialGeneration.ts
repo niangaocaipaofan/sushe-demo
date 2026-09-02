@@ -5,6 +5,7 @@ import type {
   MaterialGenerationJob,
   MaterialGenerationJobSummary,
   MaterialWorkflowStatus,
+  RetryMaterialGenerationTaskInput,
 } from "../types/material-generation";
 
 async function readResponse<T>(response: Response): Promise<T> {
@@ -96,6 +97,25 @@ export function useMaterialGeneration(workflowId: string, nodeId: string) {
     }
   }, [loadHistory, nodeId, workflowId]);
 
+  const retryImage = useCallback(async (taskId: string, input: RetryMaterialGenerationTaskInput) => {
+    if (!currentJob) throw new Error("请先选择需要重试的物料任务");
+    try {
+      setErrorMessage(undefined);
+      const response = await fetch(`/api/material-generation/tasks/${encodeURIComponent(currentJob.id)}/images/${encodeURIComponent(taskId)}/retries`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...input, workflowId }),
+      });
+      const payload = await readResponse<{ task: MaterialGenerationJob }>(response);
+      setCurrentJob(payload.task);
+      await loadHistory();
+      return payload.task;
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "无法重试图片生成");
+      throw error;
+    }
+  }, [currentJob, loadHistory, workflowId]);
+
   const workflowStatus = useMemo<MaterialWorkflowStatus>(() => {
     if (!currentJob) return "idle";
     if (currentJob.status === "queued") return "planning";
@@ -113,6 +133,7 @@ export function useMaterialGeneration(workflowId: string, nodeId: string) {
     isSubmitting,
     isSelectingJobId,
     handleStartGeneration,
+    retryImage,
     selectJob,
     loadHistory,
   };

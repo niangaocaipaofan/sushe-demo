@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "tsx --test server/*.test.ts",
     "workflow:mcp": "tsx server/workflow-mcp.ts",
     "workflow:worker": "tsx server/workflow-event-worker.ts",
     "build": "tsc -b && vite build",
