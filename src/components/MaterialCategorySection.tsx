@@ -6,11 +6,13 @@ export function MaterialCategorySection({
   label,
   tasks,
   onPreview,
+  onRetry,
 }: {
   index: number;
   label: string;
   tasks: GenerationTask[];
   onPreview?: (imageUrl: string, imageLabel: string) => void;
+  onRetry?: (task: GenerationTask) => void;
 }) {
   const completed = tasks.filter((task) => task.status === "completed").length;
   return (
@@ -20,7 +22,7 @@ export function MaterialCategorySection({
         <small>{completed} / {tasks.length}</small>
       </header>
       <div className="material-category-grid">
-        {tasks.map((task) => <MaterialImageCard key={task.taskId} task={task} onPreview={onPreview} />)}
+        {tasks.map((task) => <MaterialImageCard key={task.taskId} task={task} onPreview={onPreview} onRetry={onRetry} />)}
       </div>
     </section>
   );

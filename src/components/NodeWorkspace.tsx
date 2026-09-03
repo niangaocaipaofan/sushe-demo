@@ -15,22 +15,32 @@ import { getLocalTimeZone, parseDate, today } from "@internationalized/date";
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type InputHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 
-import type { WorkflowNode } from "../data/workflows";
+import type { WorkflowNode, WorkspaceTabIcon } from "../data/workflows";
 import { useMaterialGeneration } from "../hooks/useMaterialGeneration";
-import type { ImageGenerationModel } from "../types/material-generation";
+import { getWanzhenProductFacts } from "../data/material-product-facts";
+import type { GenerationTask, ImageGenerationModel } from "../types/material-generation";
 import { AgentTabIcon } from "./AgentTabIcon";
 import { DataSyncWorkspace } from "./DataSyncWorkspace";
 import { MaterialCategorySection } from "./MaterialCategorySection";
+import { MaterialGenerationHistory } from "./MaterialGenerationHistory";
+import { MaterialRetryDialog } from "./MaterialRetryDialog";
 import { MaterialGenerationStatus } from "./MaterialGenerationStatus";
 import { workspaceTabIconPaths } from "./WorkspaceTabIcon";
 
 interface NodeWorkspaceProps {
   node: WorkflowNode | null;
+  workflowId: string;
   spuId: string;
-  onComplete: () => void;
-  onOwnerChange: (owner: string[] | undefined) => void;
-  onPlannedStartChange: (plannedStart: string | undefined) => void;
-  onPlannedCompletionChange: (plannedCompletion: string | undefined) => void;
+  onComplete: () => Promise<void>;
+  isCompleting: boolean;
+  onRollback: () => Promise<void>;
+  isRollingBack: boolean;
+  completionError: string | null;
+  isSavingNodeMetadata: boolean;
+  nodeMetadataError: string | null;
+  onOwnerChange: (owner: string[] | undefined) => Promise<void>;
+  onScheduleChange: (plannedStart: string | undefined, plannedCompletion: string | undefined) => Promise<void>;
+  onSopChange: (sop: string) => Promise<void>;
 }
 
 const statusLabels = {
@@ -46,15 +56,20 @@ const statusColors = {
 } as const;
 
 const owners = [
-  { id: "李娜", name: "李娜" },
-  { id: "周然", name: "周然" },
-  { id: "陈默", name: "陈默" },
+  { id: "商品部", name: "商品部" },
+  { id: "视觉部", name: "视觉部" },
+  { id: "设计部", name: "设计部" },
+  { id: "搭配间", name: "搭配间" },
+  { id: "采购部", name: "采购部" },
+  { id: "版房", name: "版房" },
+  { id: "理单", name: "理单" },
 ];
 
 // Temporary display value until completion timestamps are provided by workflow data.
 const completedAtPlaceholder = "2026-08-30 14:30";
 
 const imageModelOptions: Array<{ value: ImageGenerationModel; label: string }> = [
+  { value: "smart-elderly", label: "智慧老人" },
   { value: "gpt2", label: "GPT-2" },
   { value: "nano-banana", label: "Nano Banana" },
   { value: "seedream5", label: "Seedream 5" },
@@ -62,74 +77,14 @@ const imageModelOptions: Array<{ value: ImageGenerationModel; label: string }> =
 
 const promptPresetOptions = [
   { value: "full", label: "完整商详页素材生成" },
+  { value: "model-face-outfit", label: "模特换脸/换衣" },
   { value: "none", label: "无" },
 ] as const;
 
-const tabIcons = {
+
+const workspaceTabIcons: Record<Exclude<WorkspaceTabIcon, "ai" | "data-sync">, string> = {
   database: workspaceTabIconPaths.database,
-  attachFile: workspaceTabIconPaths.attachFile,
-  flashOn: "M406-157.5q-6-7.5-6-18.5v-224h-40q-33 0-56.5-23.5T280-480v-320q0-33 23.5-56.5T360-880h234q32 0 51.5 25t11.5 55l-57 200h45q36 0 53.5 32t-3.5 62L455-159q-6 9-15.5 12t-18.5 0q-9-3-15-10.5Z",
-  sync: "M240-478q0 45 17 87.5t53 78.5l10 10v-58q0-17 11.5-28.5T360-400q17 0 28.5 11.5T400-360v160q0 17-11.5 28.5T360-160H200q-17 0-28.5-11.5T160-200q0-17 11.5-28.5T200-240h70l-16-14q-52-46-73-105t-21-119q0-94 48-170.5T337-766q14-8 29.5-1t20.5 23q5 15-.5 30T367-691q-58 32-92.5 88.5T240-478Zm480-4q0-45-17-87.5T650-648l-10-10v58q0 17-11.5 28.5T600-560q-17 0-28.5-11.5T560-600v-160q0-17 11.5-28.5T600-800h160q17 0 28.5 11.5T800-760q0 17-11.5 28.5T760-720h-70l16 14q49 49 71.5 106.5T800-482q0 94-48 170.5T623-194q-14 8-29.5 1T573-216q-5-15 .5-30t19.5-23q58-32 92.5-88.5T720-482Z",
-  eyeTracking: "M120-40q-33 0-56.5-23.5T40-120v-80q0-17 11.5-28.5T80-240q17 0 28.5 11.5T120-200v80h80q17 0 28.5 11.5T240-80q0 17-11.5 28.5T200-40h-80Zm720 0h-80q-17 0-28.5-11.5T720-80q0-17 11.5-28.5T760-120h80v-80q0-17 11.5-28.5T880-240q17 0 28.5 11.5T920-200v80q0 33-23.5 56.5T840-40ZM480-220q-106 0-196-56T143-429q-6-12-9-24.5t-3-25.5q0-14 3-27t9-25q51-97 141-153t196-56q106 0 196 56t141 153q6 12 9 24.5t3 26.5q0 14-3 26.5t-9 24.5q-51 97-141 153t-196 56Zm0-120q58 0 99-41t41-99q0-58-41-99t-99-41q-58 0-99 41t-41 99q0 58 41 99t99 41Zm0-80q-25 0-42.5-17.5T420-480q0-25 17.5-42.5T480-540q25 0 42.5 17.5T540-480q0 25-17.5 42.5T480-420Zm440-420v80q0 17-11.5 28.5T880-720q-17 0-28.5-11.5T840-760v-80h-80q-17 0-28.5-11.5T720-880q0-17 11.5-28.5T760-920h80q33 0 56.5 23.5T920-840Zm-800-80h80q17 0 28.5 11.5T240-880q0 17-11.5 28.5T200-840h-80v80q0 17-11.5 28.5T80-720q-17 0-28.5-11.5T40-760v-80q0-33 23.5-56.5T120-920Z",
-} as const;
-type TabIconName = keyof typeof tabIcons;
-
-const nodeTabs = {
-  "product-facts": [
-    { id: "wanzhen", label: "万阵", icon: "database" },
-    { id: "ecpro", label: "易尚货", icon: "database" },
-    { id: "jushuitan", label: "聚水潭", icon: "database" },
-    { id: "media", label: "资料", icon: "attachFile" },
-  ],
-  styling: [
-    { id: "wanzhen", label: "万阵", icon: "database" },
-    { id: "ecpro", label: "易尚货", icon: "database" },
-    { id: "jushuitan", label: "聚水潭", icon: "database" },
-    { id: "media", label: "资料", icon: "attachFile" },
-  ],
-  "visual-assets": [
-    { id: "ai-materials", label: "物料生成 Agent", icon: "ai" },
-    { id: "wanzhen", label: "万阵", icon: "database" },
-    { id: "ecpro", label: "易尚货", icon: "database" },
-    { id: "jushuitan", label: "聚水潭", icon: "database" },
-    { id: "media", label: "资料", icon: "attachFile" },
-  ],
-  "basic-link": [
-    { id: "data-sync", label: "数据同步 Agent", icon: "agent-data-sync" },
-    { id: "wanzhen", label: "万阵", icon: "database" },
-    { id: "ecpro", label: "易尚货", icon: "database" },
-    { id: "jushuitan", label: "聚水潭", icon: "database" },
-    { id: "media", label: "资料", icon: "attachFile" },
-  ],
-  "complete-link": [
-    { id: "data-sync", label: "数据同步 Agent", icon: "agent-data-sync" },
-    { id: "wanzhen", label: "万阵", icon: "database" },
-    { id: "ecpro", label: "易尚货", icon: "database" },
-    { id: "jushuitan", label: "聚水潭", icon: "database" },
-    { id: "media", label: "资料", icon: "attachFile" },
-  ],
-  "link-review": [
-    { id: "data-sync", label: "数据同步 Agent", icon: "agent-data-sync" },
-    { id: "wanzhen", label: "万阵", icon: "database" },
-    { id: "ecpro", label: "易尚货", icon: "database" },
-    { id: "jushuitan", label: "聚水潭", icon: "database" },
-    { id: "media", label: "资料", icon: "attachFile" },
-  ],
-  "publish-schedule": [
-    { id: "data-sync", label: "数据同步 Agent", icon: "agent-data-sync" },
-    { id: "wanzhen", label: "万阵", icon: "database" },
-    { id: "ecpro", label: "易尚货", icon: "database" },
-    { id: "jushuitan", label: "聚水潭", icon: "database" },
-    { id: "media", label: "资料", icon: "attachFile" },
-  ],
-} as const;
-
-type NodeTabId = (typeof nodeTabs)[keyof typeof nodeTabs][number]["id"];
-
-const tabPlaceholders: Partial<Record<NodeTabId, string>> = {
-  jushuitan: "聚水潭暂未配置",
-  media: "资料暂未配置",
-  "data-sync": "数据同步 Agent 暂未配置",
+  "attach-file": workspaceTabIconPaths.attachFile,
 };
 
 const productFactColumns = [
@@ -142,11 +97,6 @@ const productFactColumns = [
   { id: "season", label: "上市季节" },
   { id: "style", label: "风格" },
   { id: "tryOnSize", label: "试穿尺码" },
-] as const;
-
-const productFactRows = [
-  { id: "white-knit", sku: "XZ2608123", category: "针织上衣", color: "白色", size: "S/M/L/XL", material: "90%聚酯纤维 10%氨纶", fit: "修身", season: "2026秋季", style: "通勤", tryOnSize: "M" },
-  { id: "black-knit", sku: "XZ2608123", category: "针织上衣", color: "黑色", size: "S/M/L/XL", material: "90%聚酯纤维 10%氨纶", fit: "修身", season: "2026秋季", style: "通勤", tryOnSize: "M" },
 ] as const;
 
 const defaultMaterialRequirements = `【本次生成】
@@ -235,6 +185,45 @@ const defaultMaterialRequirements = `【本次生成】
 - 根据不同素材类型自动规划最合适构图
 - 未特别说明的部分按电商上新最佳实践处理`;
 
+const modelFaceOutfitRequirements = `【本次生成】
+
+1. 服装上身
+
+- 仅使用文件名属于「1换衣测试底图」的模特底图执行本任务。
+- 「款式图」中的每一张服装，都必须分别应用到每一张「1换衣测试底图」上。
+- 不得只为每张款式图选择一张模特底图。
+- 服装上身任务数量 = 款式图数量 × 换衣测试底图数量。
+- 例如：7 张款式图 × 3 张换衣测试底图 = 21 张结果。
+- 半身图只替换上衣；尽量还原服装面料纹理和图案。
+- 除服装外，背景、光影、色调、模特姿势、动作和身体朝向保持不变。
+
+2. 头部替换
+
+- 仅使用文件名属于「2换脸测试底图」的模特底图执行本任务。
+- 将 AI数字人脸 按正脸、左侧脸、右侧脸与对应角度的换脸测试底图进行匹配。
+- 每张 AI数字人脸至少产生 1 张对应结果。
+- 本组素材共有 3 张 AI数字人脸，因此生成 3 张头部替换结果。
+- 只替换头部，其他内容保持不变，头部与躯干融合自然。
+
+3. 服装上身 + 头部替换
+
+- 额外生成 3 张同时完成服装上身和头部替换的结果。
+- 从前两类素材中选择合理组合。
+- 这 3 张属于额外结果，不得替代前两类任务。
+
+【数量校验】
+
+在生成 Job Plan 前，先计算并返回各类 expectedCount。
+本次素材应满足：
+
+- 服装上身：7 × 3 = 21
+- 头部替换：3
+- 服装上身 + 头部替换：3
+- total = 27
+
+实际生成的 task 数量必须严格等于 expectedCount。
+如果实际 task 数量不等于 27，则 Job Plan 无效，必须自行重新规划后再返回。`;
+
 function EmptyImageIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 -960 960 960" fill="currentColor">
@@ -246,19 +235,6 @@ function EmptyImageIcon() {
 function formatFileSize(size: number) {
   if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function recognizeReferenceMaterial(fileName: string) {
-  const tags = [
-    ["款式", "款式图"],
-    ["模特", "模特底图"],
-    ["数字人脸", "数字人脸"],
-    ["细节", "细节图"],
-    ["搭配", "搭配图"],
-  ].find(([keyword]) => fileName.includes(keyword));
-  const color = ["白色", "黑色", "正面", "背面", "侧面", "领口"].find((keyword) => fileName.includes(keyword));
-
-  return [tags?.[1] ?? "待识别", color].filter(Boolean).join(" · ");
 }
 
 interface ReferenceFileTreeNode {
@@ -277,15 +253,34 @@ function isSupportedReferenceFile(file: File) {
   return file.type.startsWith("image/") || fileName.endsWith(".zip");
 }
 
-function fileToDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error(`无法读取参考图片：${file.name}`));
-    reader.onload = () => typeof reader.result === "string"
-      ? resolve(reader.result)
-      : reject(new Error(`无法读取参考图片：${file.name}`));
-    reader.readAsDataURL(file);
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, operation: (item: T) => Promise<R>) {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await operation(items[index]);
+    }
   });
+  await Promise.all(workers);
+  return results;
+}
+
+async function uploadMaterialAsset(file: File) {
+  const response = await fetch("/api/material-generation/assets", {
+    method: "POST",
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+      "X-Material-File-Name": encodeURIComponent(getReferenceFilePath(file)),
+    },
+    body: file,
+  });
+  const payload = await response.json().catch(() => null) as { asset?: { assetId?: string }; error?: string } | null;
+  if (!response.ok || !payload?.asset?.assetId) {
+    throw new Error(payload?.error || `上传参考图片失败：${file.name}`);
+  }
+  return { kind: "asset_id" as const, value: payload.asset.assetId };
 }
 
 function getFolderPaths(files: File[]) {
@@ -404,7 +399,24 @@ function ReferenceFileTree({
   );
 }
 
-function MaterialGenerationWorkspace() {
+function MaterialWorkspaceModeSwitch({
+  mode,
+  onChange,
+  disabled,
+}: {
+  mode: "configure" | "history";
+  onChange: (mode: "configure" | "history") => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="material-workspace-mode-switch" aria-label="物料生成工作区视图">
+      <button className={mode === "configure" ? "is-active" : ""} disabled={disabled} type="button" onClick={() => onChange("configure")}>生成配置</button>
+      <button className={mode === "history" ? "is-active" : ""} disabled={disabled} type="button" onClick={() => onChange("history")}>历史任务</button>
+    </div>
+  );
+}
+
+function MaterialGenerationWorkspace({ workflowId, nodeId, spuId }: { workflowId: string; nodeId: string; spuId: string }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
@@ -414,15 +426,35 @@ function MaterialGenerationWorkspace() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isOriginalPreviewOpen, setIsOriginalPreviewOpen] = useState(false);
   const [generatedPreview, setGeneratedPreview] = useState<{ imageUrl: string; imageLabel: string } | null>(null);
+  const [retryingTask, setRetryingTask] = useState<GenerationTask | null>(null);
   const [expandedFolderPaths, setExpandedFolderPaths] = useState<Set<string>>(new Set());
   const [includeProductFacts, setIncludeProductFacts] = useState(true);
   const [materialRequirements, setMaterialRequirements] = useState(defaultMaterialRequirements);
-  const [promptPreset, setPromptPreset] = useState<"full" | "none">("full");
+  const [promptPreset, setPromptPreset] = useState<(typeof promptPresetOptions)[number]["value"]>("full");
   const [isPromptPresetMenuOpen, setIsPromptPresetMenuOpen] = useState(false);
-  const [imageModel, setImageModel] = useState<ImageGenerationModel>("gpt2");
+  const [imageModel, setImageModel] = useState<ImageGenerationModel>("smart-elderly");
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
-  const { workflowStatus, plan, tasks, errorMessage, handleStartGeneration } = useMaterialGeneration();
+  const [workspaceMode, setWorkspaceMode] = useState<"configure" | "history">("configure");
+  const {
+    workflowStatus,
+    plan,
+    tasks,
+    errorMessage,
+    currentJob,
+    history,
+    isLoadingHistory,
+    isSubmitting,
+    isSelectingJobId,
+    handleStartGeneration,
+    retryImage,
+    selectJob,
+    loadHistory,
+  } = useMaterialGeneration(workflowId, nodeId);
   const isGenerating = workflowStatus === "planning" || workflowStatus === "running";
+  const [isPreparingSubmission, setIsPreparingSubmission] = useState(false);
+  const [preparationError, setPreparationError] = useState<string>();
+  const isStartingGeneration = isPreparingSubmission || isSubmitting;
+  const productFactRows = getWanzhenProductFacts(spuId);
 
   useEffect(() => {
     if (!selectedReferenceFile?.type.startsWith("image/")) {
@@ -498,30 +530,44 @@ function MaterialGenerationWorkspace() {
 
   const startGeneration = () => {
     void (async () => {
-      const referenceMaterials = await Promise.all(referenceFiles.map(async (file) => ({
-        name: getReferenceFilePath(file),
-        type: file.type || "application/octet-stream",
-        size: file.size,
-        recognizedRole: recognizeReferenceMaterial(file.name).split(" · ")[0],
-        // The image API accepts data URI Base64 in its `image` array. ZIP files
-        // remain available to the planner as metadata but are never sent as images.
-        source: file.type.startsWith("image/")
-          ? { kind: "data_url" as const, value: await fileToDataUrl(file) }
-          : undefined,
-      })));
-      await handleStartGeneration({
-        productFacts: (includeProductFacts ? productFactRows : [])
-          .map(({ id: _id, ...fact }) => ({ ...fact })),
-        referenceMaterials,
-        generationRequirements: materialRequirements,
-        imageModel,
-      });
+      setIsPreparingSubmission(true);
+      setPreparationError(undefined);
+      try {
+        const referenceMaterials = await mapWithConcurrency(referenceFiles, 5, async (file) => ({
+          name: getReferenceFilePath(file),
+          type: file.type || "application/octet-stream",
+          size: file.size,
+          // Archives remain planner metadata; images are uploaded separately so
+          // the task JSON never contains a second Base64 copy of the full library.
+          source: file.type.startsWith("image/")
+            ? await uploadMaterialAsset(file)
+            : undefined,
+        }));
+        await handleStartGeneration({
+          productFacts: (includeProductFacts ? productFactRows : [])
+            .map(({ id: _id, ...fact }) => ({ ...fact })),
+          referenceMaterials,
+          generationRequirements: materialRequirements,
+          imageModel,
+        });
+      } catch (error) {
+        setPreparationError(error instanceof Error ? error.message : "无法上传参考素材");
+      } finally {
+        setIsPreparingSubmission(false);
+      }
     })();
+  };
+
+  const handleWorkspaceModeChange = (mode: "configure" | "history") => {
+    setWorkspaceMode(mode);
+    if (mode === "history") void loadHistory(true);
   };
 
   return (
     <div className="material-agent-workspace">
+      {workspaceMode === "configure" ? (
       <form className="material-agent-form" onSubmit={(event) => { event.preventDefault(); startGeneration(); }}>
+        <MaterialWorkspaceModeSwitch mode={workspaceMode} onChange={handleWorkspaceModeChange} disabled={isStartingGeneration} />
         <section className="material-input-group" aria-label="商品事实">
           <div className="material-label-row">
             <div className="material-label-primary">
@@ -539,11 +585,11 @@ function MaterialGenerationWorkspace() {
                 <span>采用</span>
               </label>
             </div>
-            <span className="material-input-hint">从万阵同步</span>
+            <span className="material-input-hint">读取本地万阵商品文件</span>
           </div>
           <Table className="material-facts-table" variant="secondary">
             <Table.ScrollContainer>
-              <Table.Content aria-label="从万阵同步的商品事实表格">
+              <Table.Content aria-label="从本地万阵文件读取的商品事实表格">
                 <Table.Header columns={productFactColumns}>
                   {(column) => <Table.Column id={column.id}>{column.label}</Table.Column>}
                 </Table.Header>
@@ -607,7 +653,7 @@ function MaterialGenerationWorkspace() {
               </div>
             </div>
 
-            <section className="material-uploaded-files" aria-label="已上传文件内容识别展示">
+            <section className="material-uploaded-files" aria-label="已上传文件列表">
               <div className="material-uploaded-files-header">
                 <span>已上传文件</span>
                 <small>{referenceFiles.length}</small>
@@ -638,7 +684,7 @@ function MaterialGenerationWorkspace() {
                   ) : null}
                 </div>
               ) : (
-                <div className="material-files-empty">上传后将在此处展示文件名称与用途识别结果</div>
+                <div className="material-files-empty">上传后将在此处展示文件列表</div>
               )}
             </section>
           </div>
@@ -671,7 +717,9 @@ function MaterialGenerationWorkspace() {
                         aria-selected={option.value === promptPreset}
                         onClick={() => {
                           setPromptPreset(option.value);
-                          setMaterialRequirements(option.value === "full" ? defaultMaterialRequirements : "");
+                          setMaterialRequirements(option.value === "full"
+                            ? defaultMaterialRequirements
+                            : option.value === "model-face-outfit" ? modelFaceOutfitRequirements : "");
                           setIsPromptPresetMenuOpen(false);
                         }}
                       >
@@ -695,7 +743,7 @@ function MaterialGenerationWorkspace() {
             <button
               className={`material-model-trigger${isModelMenuOpen ? " is-open" : ""}`}
               type="button"
-              disabled={isGenerating}
+              disabled={isGenerating || isStartingGeneration}
               aria-label="图片生成模型"
               aria-haspopup="listbox"
               aria-expanded={isModelMenuOpen}
@@ -721,15 +769,33 @@ function MaterialGenerationWorkspace() {
               </div>
             ) : null}
           </div>
-          <button className="material-generate-button" type="submit" disabled={isGenerating || !materialRequirements.trim()}>
-            {workflowStatus === "planning" ? "正在规划..." : workflowStatus === "running" ? "生成进行中" : tasks.length ? "重新生成" : "开始生成"}
+          <button className="material-generate-button" type="submit" disabled={isGenerating || isStartingGeneration || !materialRequirements.trim()}>
+            {isPreparingSubmission ? "正在整理素材..." : isSubmitting ? "正在提交任务..." : workflowStatus === "planning" ? "正在规划..." : workflowStatus === "running" ? "生成进行中" : tasks.length ? "重新生成" : "开始生成"}
           </button>
         </div>
       </form>
+      ) : (
+        <aside className="material-history-panel">
+          <MaterialWorkspaceModeSwitch mode={workspaceMode} onChange={handleWorkspaceModeChange} disabled={Boolean(isSelectingJobId)} />
+          <MaterialGenerationHistory
+            tasks={history}
+            selectedTaskId={currentJob?.id}
+            loading={isLoadingHistory}
+            loadingTaskId={isSelectingJobId}
+            onSelect={(taskId) => { void selectJob(taskId); }}
+          />
+        </aside>
+      )}
 
       <section className="material-image-stage" aria-label="生成的图片展示">
         <div className="material-image-stage-header">
-          <MaterialGenerationStatus status={workflowStatus} tasks={tasks} errorMessage={errorMessage} />
+          <MaterialGenerationStatus
+            status={workflowStatus}
+            tasks={tasks}
+            errorMessage={preparationError ?? errorMessage}
+            startedAt={currentJob?.startedAt}
+            completedAt={currentJob?.completedAt}
+          />
           <div className="material-image-stage-actions">
             <button type="button" disabled={!tasks.some((task) => task.status === "completed")}>下载素材包</button>
             <button type="button" disabled={!tasks.some((task) => task.status === "completed")}>一键同步至易尚货</button>
@@ -744,6 +810,7 @@ function MaterialGenerationWorkspace() {
                 label={category.categoryLabel}
                 tasks={tasks.filter((task) => task.categoryKey === category.categoryKey)}
                 onPreview={(imageUrl, imageLabel) => setGeneratedPreview({ imageUrl, imageLabel })}
+                onRetry={setRetryingTask}
               />
             ))}
           </div>
@@ -757,6 +824,12 @@ function MaterialGenerationWorkspace() {
           </div>
         )}
       </section>
+      {isSelectingJobId && (
+        <div className="material-result-loading" role="status">
+          <span className="material-result-loading-spinner" />
+          正在加载任务结果...
+        </div>
+      )}
       {isOriginalPreviewOpen && previewUrl && selectedReferenceFile && createPortal(
         <div className="material-original-image-overlay" role="presentation" onMouseDown={() => setIsOriginalPreviewOpen(false)}>
           <div className="material-original-image-dialog" aria-label={`${selectedReferenceFile.name} 原图预览`} role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
@@ -773,6 +846,15 @@ function MaterialGenerationWorkspace() {
         </div>,
         document.body,
       )}
+      {retryingTask && currentJob && (
+        <MaterialRetryDialog
+          task={retryingTask}
+          imageModel={currentJob.imageModel}
+          jobReferences={currentJob.referenceMaterials}
+          onClose={() => setRetryingTask(null)}
+          onRetry={(input) => retryImage(retryingTask.taskId, input)}
+        />
+      )}
     </div>
   );
 }
@@ -787,18 +869,27 @@ function CheckIcon() {
 
 export function NodeWorkspace({
   node,
+  workflowId,
   spuId,
   onComplete,
+  isCompleting,
+  onRollback,
+  isRollingBack,
+  completionError,
+  isSavingNodeMetadata,
+  nodeMetadataError,
   onOwnerChange,
-  onPlannedStartChange,
-  onPlannedCompletionChange,
+  onScheduleChange,
+  onSopChange,
 }: NodeWorkspaceProps) {
   const [activeTabs, setActiveTabs] = useState<Record<string, string>>({});
-  const [ownerSelection, setOwnerSelection] = useState<Set<string>>(new Set());
-  const tabs = node ? nodeTabs[node.templateId as keyof typeof nodeTabs] : undefined;
+  const [isSopOpen, setIsSopOpen] = useState(false);
+  const [sopDraft, setSopDraft] = useState("");
+  const sopControlRef = useRef<HTMLDivElement>(null);
+  const tabs = node?.tabs ?? [];
 
   useEffect(() => {
-    if (!node || !tabs || activeTabs[node.id]) return;
+    if (!node || tabs.length === 0 || activeTabs[node.id]) return;
 
     setActiveTabs((currentTabs) => ({
       ...currentTabs,
@@ -807,8 +898,22 @@ export function NodeWorkspace({
   }, [activeTabs, node, tabs]);
 
   useEffect(() => {
-    setOwnerSelection(new Set(node?.owner ?? []));
-  }, [node?.id, node?.owner]);
+    setSopDraft(node?.sop ?? "");
+    setIsSopOpen(false);
+  }, [node?.id, node?.sop]);
+
+  useEffect(() => {
+    if (!isSopOpen) return;
+
+    const closeSopOnOutsidePress = (event: PointerEvent) => {
+      if (event.target instanceof Node && !sopControlRef.current?.contains(event.target)) {
+        setIsSopOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeSopOnOutsidePress);
+    return () => document.removeEventListener("pointerdown", closeSopOnOutsidePress);
+  }, [isSopOpen]);
 
   if (!node) {
     return (
@@ -820,10 +925,9 @@ export function NodeWorkspace({
     );
   }
 
-  const activeTab = tabs ? activeTabs[node.id] ?? tabs[0].id : null;
-  const placeholder = activeTab && !(activeTab === "data-sync" && node.templateId === "complete-link")
-    ? tabPlaceholders[activeTab as NodeTabId]
-    : undefined;
+  const activeTabId = tabs.length > 0 ? activeTabs[node.id] ?? tabs[0].id : null;
+  const activeTab = tabs.find((tab) => tab.id === activeTabId);
+  const materialTab = tabs.find((tab) => tab.display.kind === "workspace" && tab.display.renderer === "material-generation");
 
   return (
     <section aria-live="polite" className="node-workspace-shell">
@@ -831,7 +935,7 @@ export function NodeWorkspace({
         <div className="section-heading integration-heading">
           <h2>工作区</h2>
         </div>
-        {tabs ? (
+        {tabs.length > 0 ? (
           <Tabs
             aria-label={`${node.label} 工作区`}
             className="integration-tabs"
@@ -841,7 +945,7 @@ export function NodeWorkspace({
                 [node.id]: String(tabId),
               }))
             }
-            selectedKey={activeTab ?? undefined}
+            selectedKey={activeTabId ?? undefined}
           >
             <Tabs.ListContainer className="integration-tab-list">
               <Tabs.List>
@@ -849,11 +953,11 @@ export function NodeWorkspace({
                   <Tabs.Tab className="integration-tab" id={tab.id} key={tab.id}>
                     {tab.icon === "ai" ? (
                       <AgentTabIcon label="AI" />
-                    ) : tab.icon === "agent-data-sync" ? (
+                    ) : tab.icon === "data-sync" ? (
                       <AgentTabIcon label="AI" />
                     ) : (
                       <svg aria-hidden="true" className="size-4 shrink-0 fill-current" viewBox="0 -960 960 960">
-                        <path d={tabIcons[tab.icon as TabIconName]} />
+                        <path d={workspaceTabIcons[tab.icon]} />
                       </svg>
                     )}
                     {tab.label}
@@ -867,22 +971,29 @@ export function NodeWorkspace({
           <div className="empty-workspace">此节点暂无关联系统</div>
         )}
         <div
-          className={`node-embed-panel ${activeTab === "wanzhen" ? "is-active" : "is-hidden"}`}
-          aria-hidden={activeTab !== "wanzhen"}
-          aria-label="万阵嵌入页面"
+          className={`node-embed-panel ${activeTab?.display.kind === "embedded" && activeTab.id === "wanzhen" ? "is-active" : "is-hidden"}`}
+          aria-hidden={activeTab?.display.kind !== "embedded" || activeTab.id !== "wanzhen"}
+          aria-label={activeTab?.display.kind === "embedded" ? activeTab.display.title : "万阵嵌入页面"}
         >
-          <iframe className="node-embed-frame" src="https://outsofts.cn/personalCenter/settings" title="Outsofts 设置页" loading="lazy" />
+          {activeTab?.display.kind === "embedded" && activeTab.id === "wanzhen" && <iframe className="node-embed-frame" src={activeTab.display.src} title={activeTab.display.title} loading="lazy" />}
         </div>
         <div
-          className={`node-embed-panel ${activeTab === "ecpro" ? "is-active" : "is-hidden"}`}
-          aria-hidden={activeTab !== "ecpro"}
-          aria-label="易尚货嵌入页面"
+          className={`node-embed-panel ${activeTab?.display.kind === "embedded" && activeTab.id === "ecpro" ? "is-active" : "is-hidden"}`}
+          aria-hidden={activeTab?.display.kind !== "embedded" || activeTab.id !== "ecpro"}
+          aria-label={activeTab?.display.kind === "embedded" ? activeTab.display.title : "易尚货嵌入页面"}
         >
-          <iframe className="node-embed-frame" src="https://cms.ecpro.com/login" title="ECPro 登录页" loading="lazy" />
+          {activeTab?.display.kind === "embedded" && activeTab.id === "ecpro" && <iframe className="node-embed-frame" src={activeTab.display.src} title={activeTab.display.title} loading="lazy" />}
         </div>
-        {activeTab === "ai-materials" && <MaterialGenerationWorkspace />}
-        {activeTab === "data-sync" && node.templateId === "complete-link" && <DataSyncWorkspace key={spuId} spuId={spuId} />}
-        {placeholder && <div className="empty-workspace">{placeholder}</div>}
+        {materialTab && (
+          <div
+            className={`material-workspace-panel ${activeTabId === materialTab.id ? "is-active" : "is-hidden"}`}
+            aria-hidden={activeTabId !== materialTab.id}
+          >
+            <MaterialGenerationWorkspace key={`${workflowId}:${node.id}`} workflowId={workflowId} nodeId={node.id} spuId={spuId} />
+          </div>
+        )}
+        {activeTab?.display.kind === "workspace" && activeTab.display.renderer === "data-sync" && <DataSyncWorkspace key={spuId} spuId={spuId} />}
+        {activeTab?.display.kind === "placeholder" && <div className="empty-workspace">{activeTab.display.message}</div>}
       </div>
 
       <aside className="node-inspector" aria-label="节点详情">
@@ -891,35 +1002,54 @@ export function NodeWorkspace({
             <Chip className={`inspector-status-chip is-${node.status}`} color={statusColors[node.status]} size="sm" variant="soft">{statusLabels[node.status]}</Chip>
             <h2>{node.label}</h2>
           </div>
+          <div className="sop-control" ref={sopControlRef}>
+            <button
+              aria-expanded={isSopOpen}
+              aria-label="查看并编辑 SOP"
+              className={`sop-trigger ${isSopOpen ? "is-active" : ""}`}
+              onClick={() => {
+                if (!isSopOpen) setSopDraft(node.sop);
+                setIsSopOpen((isOpen) => !isOpen);
+              }}
+              type="button"
+            >
+              SOP
+            </button>
+            {isSopOpen && (
+              <div className="sop-popover" role="dialog" aria-label={`${node.label} SOP`}>
+                <div className="sop-popover-heading">
+                  <strong>SOP</strong>
+                  <button
+                    className="sop-save-button"
+                    disabled={isSavingNodeMetadata || sopDraft === node.sop}
+                    onClick={() => void onSopChange(sopDraft)}
+                    type="button"
+                  >
+                    {isSavingNodeMetadata ? "保存中…" : "保存"}
+                  </button>
+                </div>
+                <textarea
+                  aria-label={`${node.label} SOP 内容`}
+                  className="sop-textarea"
+                  onChange={(event) => setSopDraft(event.target.value)}
+                  placeholder="请输入此节点的 SOP"
+                  value={sopDraft}
+                />
+              </div>
+            )}
+          </div>
         </div>
         <div className="inspector-fields">
             <Select
               aria-label="负责人"
               className="w-full"
-              onSelectionChange={(selection) => {
-                if (selection == null || selection === "all") return;
-
-                const selectionValue = selection as unknown;
-
-                const nextSelection =
-                  selectionValue instanceof Set
-                    ? new Set(Array.from(selectionValue, String))
-                    : new Set(ownerSelection);
-
-                if (!(selectionValue instanceof Set)) {
-                  const selectedOwner = String(selectionValue);
-                  if (nextSelection.has(selectedOwner)) {
-                    nextSelection.delete(selectedOwner);
-                  } else {
-                    nextSelection.add(selectedOwner);
-                  }
-                }
-
-                setOwnerSelection(nextSelection);
-                const ownerValues = Array.from(nextSelection);
-                onOwnerChange(ownerValues.length > 0 ? ownerValues : undefined);
+              key={node.id}
+              onChange={(selection) => {
+                const ownerValues = selection.map(String);
+                void onOwnerChange(ownerValues.length > 0 ? ownerValues : undefined);
               }}
-              {...({ selectedKeys: node.owner ?? [] } as { selectedKeys: string[] })}
+              value={node.owner ?? []}
+              isDisabled={isSavingNodeMetadata}
               selectionMode="multiple"
               variant="secondary"
             >
@@ -946,9 +1076,9 @@ export function NodeWorkspace({
                   : null
               }
               onChange={(range) => {
-                onPlannedStartChange(range?.start?.toString());
-                onPlannedCompletionChange(range?.end?.toString());
+                void onScheduleChange(range?.start?.toString(), range?.end?.toString());
               }}
+              isDisabled={isSavingNodeMetadata}
               placeholderValue={today(getLocalTimeZone())}
             >
               <Label className="inspector-field-label">计划时间</Label>
@@ -992,14 +1122,21 @@ export function NodeWorkspace({
         </div>
         <div className="inspector-footer">
           {node.status === "completed" ? (
-            <div className="completed-message"><CheckIcon /> 节点已完成 <span>{completedAtPlaceholder}</span></div>
+            <div className="completed-actions">
+              <div className="completed-message"><CheckIcon /> 已完成 <span>{completedAtPlaceholder}</span></div>
+              <Button className="rollback-button rounded-md" size="sm" variant="primary" isDisabled={isRollingBack} onPress={() => void onRollback()}>
+                {isRollingBack ? "正在回滚..." : "回滚"}
+              </Button>
+            </div>
           ) : node.status === "running" ? (
-            <Button className="complete-button w-full rounded-md" size="sm" variant="primary" onPress={onComplete}>
-              <CheckIcon /> 标记为完成
+            <Button className="complete-button w-full rounded-md" size="sm" variant="primary" isDisabled={isCompleting} onPress={() => void onComplete()}>
+              <CheckIcon /> {isCompleting ? "正在完成..." : "标记为完成"}
             </Button>
           ) : (
             <div className="pending-message">等待上游节点完成</div>
           )}
+          {completionError && <div className="pending-message">{completionError}</div>}
+          {nodeMetadataError && <div className="pending-message">{nodeMetadataError}</div>}
         </div>
       </aside>
     </section>

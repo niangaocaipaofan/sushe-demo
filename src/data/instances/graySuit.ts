@@ -1,4 +1,5 @@
 import type { ProductWorkflowInstance } from "../workflow/types";
+import { defaultVisualAssetsSop } from "../material-generation-presets";
 
 export const graySuitWorkflowInstance: ProductWorkflowInstance = {
   id: "gray-suit",
@@ -6,14 +7,24 @@ export const graySuitWorkflowInstance: ProductWorkflowInstance = {
   name: "灰色西装",
   dagTemplateId: "product-publishing",
   nodes: [
-    { id: "gray-suit:new-task", nodeTemplateId: "new-task", status: "completed" },
-    { id: "gray-suit:product-facts", nodeTemplateId: "product-facts", status: "completed" },
-    { id: "gray-suit:basic-link", nodeTemplateId: "basic-link", status: "completed" },
-    { id: "gray-suit:styling", nodeTemplateId: "styling", status: "completed" },
-    { id: "gray-suit:visual-assets", nodeTemplateId: "visual-assets", status: "running" },
-    { id: "gray-suit:complete-link", nodeTemplateId: "complete-link", status: "pending" },
-    { id: "gray-suit:link-review", nodeTemplateId: "link-review", status: "pending" },
-    { id: "gray-suit:publish-schedule", nodeTemplateId: "publish-schedule", status: "pending" },
+    { id: "gray-suit:new-task", nodeTemplateId: "new-task", sop: "", status: "completed" },
+    { id: "gray-suit:product-facts", nodeTemplateId: "product-facts", sop: "", status: "completed" },
+    { id: "gray-suit:basic-link", nodeTemplateId: "basic-link", sop: "", status: "completed" },
+    { id: "gray-suit:styling", nodeTemplateId: "styling", sop: "", status: "completed" },
+    {
+      id: "gray-suit:visual-assets",
+      nodeTemplateId: "visual-assets",
+      sop: defaultVisualAssetsSop,
+      status: "running",
+    },
+    {
+      id: "gray-suit:complete-link",
+      nodeTemplateId: "complete-link",
+      sop: "",
+      status: "pending",
+    },
+    { id: "gray-suit:link-review", nodeTemplateId: "link-review", sop: "", status: "pending" },
+    { id: "gray-suit:publish-schedule", nodeTemplateId: "publish-schedule", sop: "", status: "pending" },
   ],
   edges: [
     { id: "new-task-product-facts", source: "gray-suit:new-task", target: "gray-suit:product-facts" },

@@ -49,14 +49,15 @@ export function WorkflowGraph({
   );
 
   useEffect(() => {
-    const runningNode = graph.nodes.find((node) => node.data.status === "running");
+    const runningNode = graph.nodes.find((node) => node.id === selectedNodeId)
+      ?? graph.nodes.find((node) => node.data.status === "running");
     const viewport = scrollRef.current;
     if (!runningNode || !viewport) return;
 
     const targetLeft =
       runningNode.position.x + runningNode.data.width / 2 - viewport.clientWidth / 2;
     viewport.scrollTo({ left: Math.max(0, targetLeft), behavior: "instant" });
-  }, [graph, workflow.id]);
+  }, [graph, selectedNodeId, workflow.id]);
 
   const handleNodeClick: NodeMouseHandler<WorkflowFlowNode> = (_, node) => {
     onSelectNode(node.id);
